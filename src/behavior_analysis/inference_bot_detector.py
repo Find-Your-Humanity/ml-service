@@ -14,11 +14,13 @@ from sklearn.preprocessing import MinMaxScaler
 current_dir = Path(__file__).parent
 project_root = current_dir.parent.parent.parent.parent
 sys.path.append(str(project_root))
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from config.paths import get_model_file_path, get_data_file_path
 
 class AutoEncoder(torch.nn.Module):
     def __init__(self, input_dim):
+        
         super(AutoEncoder, self).__init__()
         self.encoder = torch.nn.Sequential(
             torch.nn.Linear(input_dim, 32),
