@@ -83,6 +83,7 @@ def extract_features_from_json(path):
 
     return summary
 
+# 봇 탐지 함수, app.py에서 호출
 def detect_bot(json_path):
     feat = extract_features_from_json(json_path)
     df = pd.DataFrame([feat])
@@ -111,7 +112,15 @@ def detect_bot(json_path):
         recon = model(x)
         mse = torch.mean((x - recon)**2, dim=1).item()
 
-    score = max(0, 100 * (1 - (mse / threshold)))
+    if mse > threshold:
+        ratio = mse / threshold
+        if ratio > 1000:
+            score = max(0, 100 * (1-np.log10(ratio) / 10))
+        else:
+            score = max(0, 100 * (1 - ratio))
+    else:
+        score = max(0, 100 * (1 - mse / threshold))
+
     is_bot = score < 50
 
     # NumPy 타입 -> Python 기본 타입으로 변환
@@ -123,14 +132,15 @@ def detect_bot(json_path):
         "mse": round(float(mse), 6),
         "threshold": round(float(threshold), 6),
         "is_bot": is_bot,
-        "features": feat_serialized
+        "features": feat_serialized,
     }
 
 if __name__ == "__main__":
     # 테스트용 데이터 파일 경로
-    test_file = get_data_file_path("bot_sessions.json")
+    # 윈도우 절대경로 문자열 대신 데이터 디렉토리 기준 파일명만 사용
+    test_file = get_data_file_path("behavior_data_20250731_105033.json")
     if test_file.exists():
-        result = detect_bot(str(test_file))
+        result = detect_bot(test_file)
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
         print(f"테스트 파일이 없습니다: {test_file}")
