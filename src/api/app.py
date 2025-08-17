@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import sys
 import traceback
+ 
 
 # detect_bot은 메모리 사용 이슈가 있어 요청 시점에 지연 import 합니다.
 
@@ -80,6 +81,7 @@ def _get_crnn_predictor():
 async def predict_text(file: UploadFile = File(...)):
     try:
         predictor = _get_crnn_predictor()
+        backend = "pil"
         # 업로드 파일을 임시 경로에 저장 후 예측
         suffix = Path(file.filename).suffix or ".png"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -92,7 +94,7 @@ async def predict_text(file: UploadFile = File(...)):
                 os.unlink(tmp_path)
             except Exception:
                 pass
-        return {"text": text}
+        return {"text": text, "preprocess": backend}
     except HTTPException:
         raise
     except Exception as e:

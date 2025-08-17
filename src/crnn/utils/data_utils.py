@@ -1,8 +1,10 @@
 import os
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps, ImageFilter, ImageEnhance
 import torch
 from torch.utils.data import Dataset
+
+ 
 
 def load_image(image_path):
     """이미지를 로드하고 전처리합니다."""
@@ -22,6 +24,90 @@ def process_image(image, target_height=32):
     img_array = img_array / 255.0
     
     return img_array
+
+def preprocess_for_ocr(image: Image.Image, fg_threshold: int = 245, pad: int = 18) -> Image.Image:
+    """OCR 친화 전처리
+    - 연한 획/여백 문제를 줄이기 위해 컨텐츠 바운딩박스 크롭(+패딩)
+    - 대비 강화(autocontrast)
+    - 얇은 획을 살짝 두껍게(MaxFilter 3x3)
+    """
+    if image.mode != 'L':
+        image = image.convert('L')
+
+    np_img = np.array(image)
+    mask = np_img < fg_threshold  # 비백색 픽셀
+    if mask.any():
+        ys, xs = np.where(mask)
+        top, bottom = int(ys.min()), int(ys.max())
+        left, right = int(xs.min()), int(xs.max())
+        # 패딩 적용
+        top = max(0, top - pad)
+        left = max(0, left - pad)
+        bottom = min(np_img.shape[0] - 1, bottom + pad)
+        right = min(np_img.shape[1] - 1, right + pad)
+        image = image.crop((left, top, right + 1, bottom + 1))
+
+    # 대비 강화 (상하위 0.5~1% 컷)
+    image = ImageOps.autocontrast(image, cutoff=1)
+
+    # Otsu 이진화 + 굵기 강화 2회 + 샤픈
+    try:
+        arr = np.array(image, dtype=np.uint8)
+        # Otsu 임계값 계산
+        hist = np.bincount(arr.ravel(), minlength=256)
+        total = arr.size
+        sum_total = np.dot(np.arange(256), hist)
+        sumB = 0.0
+        wB = 0.0
+        varMax = -1.0
+        threshold = 200
+        for t in range(256):
+            wB += hist[t]
+            if wB == 0:
+                continue
+            wF = total - wB
+            if wF == 0:
+                break
+            sumB += t * hist[t]
+            mB = sumB / wB
+            mF = (sum_total - sumB) / wF
+            varBetween = wB * wF * (mB - mF) ** 2
+            if varBetween > varMax:
+                varMax = varBetween
+                threshold = t
+        # 너무 낮게 잡히면 흐려지므로 하한선 적용
+        thresh = max(200, int(threshold))
+        arr = np.where(arr < thresh, 0, 255).astype(np.uint8)
+        image = Image.fromarray(arr, mode='L')
+        # 굵기 강화: MinFilter size=5 두 번
+        image = image.filter(ImageFilter.MinFilter(size=5))
+        image = image.filter(ImageFilter.MinFilter(size=5))
+        # 샤픈
+        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=150, threshold=0))
+    except Exception:
+        pass
+
+    # 바운딩박스 외곽에 추가 여백 부여(조금 더 넉넉하게)
+    try:
+        image = ImageOps.expand(image, border=18, fill=255)
+    except Exception:
+        pass
+
+    return image
+
+ 
+
+def process_image_enhanced(image: Image.Image, target_height: int = 32) -> np.ndarray:
+    """전처리 + 리사이즈 + 정규화(0~1)
+    - PIL 전처리(preprocess_for_ocr)만 사용
+    - 높이 32로 리사이즈 후 0~1 정규화
+    """
+    try:
+        print("🔧 Using PIL preprocessing")
+    except Exception:
+        pass
+    pre = preprocess_for_ocr(image)
+    return process_image(pre, target_height=target_height)
 
 def encode_text(text, char_to_idx):
     """텍스트를 인덱스 시퀀스로 변환합니다."""

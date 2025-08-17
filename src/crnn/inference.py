@@ -4,9 +4,12 @@ import torch
 import argparse
 from PIL import Image
 import numpy as np
+from datetime import datetime
+from pathlib import Path
+import uuid
 
 from .model.crnn import CRNN
-from .utils.data_utils import process_image, decode_prediction
+from .utils.data_utils import process_image_enhanced, decode_prediction
 
 class HandwritingPredictor:
     def __init__(self, model_path, char_to_idx, idx_to_char, device=None):
@@ -30,13 +33,37 @@ class HandwritingPredictor:
     
     def predict(self, image):
         """이미지에서 텍스트 예측"""
-        # 이미지 전처리
+        # 이미지 전처리 (백엔드에서 하던 전처리를 이곳으로 이동)
         if isinstance(image, str):
-            image = Image.open(image).convert('L')
+            img = Image.open(image)
         elif isinstance(image, np.ndarray):
-            image = Image.fromarray(image).convert('L')
-        
-        img_array = process_image(image)
+            img = Image.fromarray(image)
+        else:
+            img = image
+
+        # 알파 채널이 있으면 흰 배경에 합성 후 RGB로 변환
+        if img.mode in ('RGBA', 'LA'):
+            background = Image.new('RGBA', img.size, (255, 255, 255, 255))
+            background.paste(img, (0, 0), img)
+            img = background.convert('RGB')
+        elif img.mode == 'P':
+            img = img.convert('RGB')
+
+        # 그레이스케일로 변환
+        img = img.convert('L')
+
+        img_array = process_image_enhanced(img)
+
+        # 디버그: 전처리 후 모델 입력 이미지를 저장 (매 호출)
+        try:
+            debug_dir = Path(__file__).resolve().parents[2] / "debug_uploads"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+            fname = f"ocr_model_input_pil_{ts}_{uuid.uuid4().hex[:8]}.png"
+            debug_img = Image.fromarray((np.clip(img_array, 0.0, 1.0) * 255).astype(np.uint8))
+            debug_img.save(debug_dir / fname)
+        except Exception:
+            pass
         img_tensor = torch.FloatTensor(img_array).unsqueeze(0).unsqueeze(0)
         img_tensor = img_tensor.to(self.device)
         
