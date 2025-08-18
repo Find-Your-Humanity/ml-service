@@ -5,15 +5,21 @@ import torch.nn as nn
 import pandas as pd
 import numpy as np
 import joblib
+import os
 import sys
 from pathlib import Path
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, TensorDataset
 
-# config 모듈 import를 위한 경로 추가 (새 위치 기준)
+# Hyperparameters via environment (for Kubeflow/Katib)
+EPOCHS = int(os.getenv("EPOCHS", "50"))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "32"))
+LR = float(os.getenv("LR", "1e-3"))
+
+# config 모듈 import를 위한 경로 추가 (src를 sys.path에 추가)
 current_dir = Path(__file__).parent
-project_root = current_dir.parent.parent.parent.parent
-sys.path.append(str(project_root))
+src_dir = current_dir.parent.parent  # .../src
+sys.path.append(str(src_dir))
 
 from config.paths import get_model_file_path, ensure_directories
 
@@ -43,22 +49,23 @@ def train(csv_path):
 
     # 컬럼 순서 저장
     feature_columns = df.columns.tolist()
-    joblib.dump(feature_columns, "feature_columns.pkl")
+    ensure_directories()
+    joblib.dump(feature_columns, get_model_file_path("feature_columns.pkl"))
 
     scaler = MinMaxScaler()
     scaled = scaler.fit_transform(df)
-    joblib.dump(scaler, "scaler.pkl")
+    joblib.dump(scaler, get_model_file_path("scaler.pkl"))
 
     X = torch.tensor(scaled, dtype=torch.float32)
     dataset = TensorDataset(X)
-    loader = DataLoader(dataset, batch_size=32, shuffle=True)
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     model = AutoEncoder(input_dim=X.shape[1])
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
     best_loss = float('inf')
-    for epoch in range(50):
+    for epoch in range(EPOCHS):
         model.train()
         total_loss = 0.0
         for xb in loader:
@@ -88,6 +95,9 @@ def train(csv_path):
         f.write(str(threshold))
     print(f"✅ 최적 모델 저장 완료: {get_model_file_path('model.pth')}")
     print(f"✅ Threshold 저장 완료: {threshold:.6f}")
+    # Katib metric (regex example: BEST_LOSS: ([0-9.]+))
+    print(f"BEST_LOSS: {best_loss:.6f}")
 
 if __name__ == "__main__":
-    train("merged_session_basic_data.csv")
+    # 학습 데이터는 모델 디렉터리 내 CSV를 기본값으로 사용
+    train(get_model_file_path("merged_session_basic_data.csv"))

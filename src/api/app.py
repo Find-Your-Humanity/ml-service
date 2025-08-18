@@ -15,6 +15,11 @@ import traceback
 # FastAPI 인스턴스
 app = FastAPI(title="ML Bot Detection API")
 
+# Health endpoint for probes
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 # 요청 스키마
 class BehaviorDataRequest(BaseModel):
     behavior_data: Dict[str, Any]
