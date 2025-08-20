@@ -1,0 +1,61 @@
+# Git / CI
+.git
+.gitignore
+.github
+.gitattributes
+
+# Python cache / build
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+ENV/
+.Python
+
+# System files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE / Editor
+.vscode/
+.idea/
+*.sublime-*
+.atom/
+
+# Tests
+tests/
+
+# Docs
+README.md
+*.md
+docs/
+
+# Logs
+logs/
+
+# Temp
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Debug artifacts
+debug_uploads/
+
+# Docker
+Dockerfile*
+.dockerignore

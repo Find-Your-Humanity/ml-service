@@ -8,12 +8,21 @@ import os
 from pathlib import Path
 import sys
 import traceback
+from src.config.paths import ensure_directories
  
 
 # detect_bot은 메모리 사용 이슈가 있어 요청 시점에 지연 import 합니다.
 
 # FastAPI 인스턴스
 app = FastAPI(title="ML Bot Detection API")
+
+# Ensure required directories exist at startup
+@app.on_event("startup")
+def _init_dirs():
+    try:
+        ensure_directories()
+    except Exception:
+        pass
 
 # Health endpoint for probes
 @app.get("/health")
