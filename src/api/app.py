@@ -1,5 +1,6 @@
 # ml_service/app.py
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any
 import tempfile
@@ -15,6 +16,23 @@ from src.config.paths import ensure_directories
 
 # FastAPI 인스턴스
 app = FastAPI(title="ML Bot Detection API")
+
+# CORS 설정
+app.add_middleware(
+	CORSMiddleware,
+	allow_origins=[
+		"http://localhost:3000",
+		"http://localhost:3001",
+		"https://realcatcha.com",
+		"https://www.realcatcha.com",
+		"https://api.realcatcha.com",
+		"https://test.realcatcha.com",
+		"https://dashboard.realcatcha.com"
+	],
+	allow_credentials=True,
+	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+	allow_headers=["*"],
+)
 
 # Ensure required directories exist at startup
 @app.on_event("startup")
