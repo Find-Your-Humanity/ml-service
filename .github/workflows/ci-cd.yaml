@@ -44,6 +44,9 @@ jobs:
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # 불필요한 메타데이터 산출 비활성화로 빌드 가속
+          provenance: false
+          sbom: false
           tags: |
             ${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-service:${{ github.sha }}
             ${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-service:latest
