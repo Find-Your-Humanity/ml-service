@@ -40,7 +40,7 @@ jobs:
         env:
           BUILDKIT_PROGRESS: plain
         with:
-          context: ./backend/ml-service
+          context: .
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
