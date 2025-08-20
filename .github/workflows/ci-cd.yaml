@@ -29,32 +29,7 @@ jobs:
           username: ${{ secrets.ACCESS_KEY }}
           password: ${{ secrets.ACCESS_SECRET_KEY }}
 
-      - name: Compute runtime tag from requirements hash
-        id: rt
-        run: |
-          # requirements.txt 해시로 런타임 태그 생성(짧은 해시)
-          RUNTIME_TAG=$(sha256sum requirements.txt | cut -c1-12)
-          echo "tag=${RUNTIME_TAG}" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push RUNTIME image (CUDA Torch pre-baked)
-        uses: docker/build-push-action@v5
-        env:
-          BUILDKIT_PROGRESS: plain
-        with:
-          context: .
-          file: Dockerfile.runtime
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: false
-          sbom: false
-          build-args: |
-            TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
-          tags: |
-            ${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-runtime:${{ steps.rt.outputs.tag }}
-            ${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-runtime:latest
-
-      - name: Build and push APP image (FROM runtime)
+      - name: Build and push APP image (no venv, no deps baked-in)
         id: docker_build
         uses: docker/build-push-action@v5
         env:
@@ -67,8 +42,6 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
           sbom: false
-          build-args: |
-            BASE_IMAGE=${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-runtime:${{ steps.rt.outputs.tag }}
           tags: |
             ${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-service:${{ github.sha }}
             ${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-service:latest
