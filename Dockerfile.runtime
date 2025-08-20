@@ -1,0 +1,35 @@
+# CUDA 포함 PyTorch 기반 런타임 베이스 이미지
+# Torch CUDA wheel 인덱스는 기본 cu121로 설정(필요 시 build-arg로 변경)
+FROM python:3.10-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# 런타임에 필요한 최소 패키지
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      curl \
+      ca-certificates \
+      libglib2.0-0 libgl1 \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /runtime
+
+# 애플리케이션 requirements 복사
+COPY requirements.txt ./requirements.txt
+
+# Torch를 별도로 설치하기 위해 requirements에서 torch 라인을 제거
+RUN sed '/^torch[[:space:]=<>!~]/d' requirements.txt > requirements.base.txt
+
+# pip 기본 도구 업데이트
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools
+
+# 나머지 의존성 설치(대부분 경량)
+RUN pip install --no-cache-dir -r requirements.base.txt
+
+# CUDA용 Torch 설치(기본: cu121). 필요 시 build-arg로 다른 인덱스를 넘겨 변경 가능
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
+RUN pip install --no-cache-dir --index-url ${TORCH_INDEX_URL} torch==2.3.1
+
+# 정리
+WORKDIR /app

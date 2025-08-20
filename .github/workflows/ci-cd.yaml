@@ -19,11 +19,6 @@ jobs:
         with:
           python-version: "3.10"
 
-#      - name: Install dependencies (optional)
-#        run: |
-#          pip install --no-cache-dir -r requirements.txt || true
-#        working-directory: ./backend/ml-service
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -34,19 +29,46 @@ jobs:
           username: ${{ secrets.ACCESS_KEY }}
           password: ${{ secrets.ACCESS_SECRET_KEY }}
 
-      - name: Build and push Docker image
+      - name: Compute runtime tag from requirements hash
+        id: rt
+        run: |
+          # requirements.txt 해시로 런타임 태그 생성(짧은 해시)
+          RUNTIME_TAG=$(sha256sum requirements.txt | cut -c1-12)
+          echo "tag=${RUNTIME_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push RUNTIME image (CUDA Torch pre-baked)
+        uses: docker/build-push-action@v5
+        env:
+          BUILDKIT_PROGRESS: plain
+        with:
+          context: .
+          file: Dockerfile.runtime
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+          build-args: |
+            TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
+          tags: |
+            ${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-runtime:${{ steps.rt.outputs.tag }}
+            ${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-runtime:latest
+
+      - name: Build and push APP image (FROM runtime)
         id: docker_build
         uses: docker/build-push-action@v5
         env:
           BUILDKIT_PROGRESS: plain
         with:
           context: .
+          file: Dockerfile
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # 불필요한 메타데이터 산출 비활성화로 빌드 가속
           provenance: false
           sbom: false
+          build-args: |
+            BASE_IMAGE=${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-runtime:${{ steps.rt.outputs.tag }}
           tags: |
             ${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-service:${{ github.sha }}
             ${{ secrets.PROJECT_NAME }}.kr-central-2.kcr.dev/${{ secrets.REPOSITORY_NAME }}/ml-service:latest
