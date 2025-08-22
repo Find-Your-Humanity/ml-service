@@ -1,6 +1,6 @@
 # Real Captcha ML Service
 
-Real Captcha의 **머신러닝 및 AI 기반 사용자 행동 분석 서비스**입니다. AutoEncoder 기반 봇 탐지, 행동 패턴 분석, 그리고 향후 ImageNet 기반 이미지 생성을 담당합니다.
+Real Captcha의 **머신러닝 및 AI 기반 사용자 행동 분석 서비스**입니다. AutoEncoder 기반 봇 탐지, 행동 패턴 분석, 필기 OCR, Abstract 이미지 분류(keras .h5) 추론을 제공합니다.
 
 ## 🤖 **주요 기능**
 
@@ -40,10 +40,9 @@ src/
 │   └── behavior_data/             # 행동 데이터 파일들
 │       ├── behavior_data_*.json   # 수집된 행동 데이터
 │       └── bot_sessions.json      # 봇 세션 데이터
-└── api/                          # API 서비스 (향후 구현)
+└── api/                          # API 서비스
     ├── __init__.py
-    ├── bot_detection_api.py      # 봇 탐지 API 엔드포인트
-    └── image_generation_api.py   # 이미지 생성 API (ImageNet)
+    └── app.py                    # FastAPI 엔드포인트 (/predict-bot, /predict-text, /predict-abstract-proba-batch)
 ```
 
 ## 🚀 **빠른 시작**

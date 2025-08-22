@@ -1,1 +1,4 @@
 src/crnn/model/*.pth
+src/behavior_analysis/models/*.pth
+src/abstract/*.h5
+src/abstract/*.keras

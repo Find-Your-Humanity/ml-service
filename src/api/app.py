@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 import traceback
 from src.config.paths import ensure_directories
+from typing import List
  
 
 # detect_bot은 메모리 사용 이슈가 있어 요청 시점에 지연 import 합니다.
@@ -132,3 +133,108 @@ async def predict_text(file: UploadFile = File(...)):
     except Exception as e:
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Text prediction failed: {str(e)}")
+
+
+# ===== Abstract Image Classification (Keras .h5) =====
+_abstract_model = None
+_abstract_input_shape = None
+_abstract_class_list: List[str] = []
+
+# 경로 설정
+ML_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ABSTRACT_MODEL_PATH = ML_PROJECT_ROOT / "src" / "abstract" / "abstract_model.h5"
+# word_list.txt는 ml-service/src/crnn/word_list.txt를 사용하도록 통일
+WORD_LIST_PATH = ML_PROJECT_ROOT / "src" / "crnn" / "word_list.txt"
+
+
+def _load_word_list(path: Path) -> List[str]:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip()]
+    except Exception as e:
+        print(f"[abstract] failed to load word_list: {e}")
+        return []
+
+
+def _get_abstract_model():
+    global _abstract_model, _abstract_input_shape, _abstract_class_list
+    if _abstract_model is None:
+        try:
+            # TensorFlow keras 경로로 통일 (TF 2.16.2 권장)
+            import tensorflow as tf  # type: ignore
+            _abstract_model = tf.keras.models.load_model(str(ABSTRACT_MODEL_PATH), compile=False)
+            # 입력 크기 확인 (None, H, W, C)
+            shape = getattr(_abstract_model, 'input_shape', None)
+            if isinstance(shape, tuple) and len(shape) == 4:
+                _abstract_input_shape = (shape[1], shape[2], shape[3])
+            else:
+                # 기본값: 224x224x3
+                _abstract_input_shape = (224, 224, 3)
+        except Exception as e:
+            print(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"Failed to load abstract model: {e}")
+
+    if not _abstract_class_list:
+        _abstract_class_list = _load_word_list(WORD_LIST_PATH)
+    if not _abstract_class_list:
+        raise HTTPException(status_code=500, detail="word_list.txt is empty or missing")
+
+    return _abstract_model, _abstract_input_shape, _abstract_class_list
+
+
+def _preprocess_image_to_tensor(path: Path, input_shape: tuple):
+    from PIL import Image
+    import numpy as np
+    target_h, target_w, target_c = input_shape
+    with Image.open(path) as img:
+        img = img.convert('RGB') if target_c == 3 else img.convert('L')
+        img = img.resize((target_w, target_h))
+        arr = np.array(img).astype('float32') / 255.0
+        if target_c == 1 and arr.ndim == 2:
+            arr = arr[..., None]
+        return arr
+
+
+@app.post("/predict-abstract-proba-batch")
+async def predict_abstract_proba_batch(
+    target_class: str = Form(...),
+    files: List[UploadFile] = File(...),
+):
+    try:
+        model, input_shape, class_list = _get_abstract_model()
+        try:
+            class_index = class_list.index(target_class)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"target_class '{target_class}' not in word_list")
+
+        # 임시 파일 저장 후 배치 전처리
+        tmp_paths: List[Path] = []
+        try:
+            for uf in files:
+                suffix = Path(uf.filename or "").suffix or ".jpg"
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(await uf.read())
+                    tmp_paths.append(Path(tmp.name))
+
+            import numpy as np
+            batch = np.stack([_preprocess_image_to_tensor(p, input_shape) for p in tmp_paths], axis=0)
+
+            # 예측
+            preds = model.predict(batch)
+            # 출력 형태: (N, num_classes)
+            if preds.ndim != 2 or preds.shape[1] < (class_index + 1):
+                raise HTTPException(status_code=500, detail="Model output shape mismatch with class list")
+
+            probs = preds[:, class_index].astype(float).tolist()
+            return {"probs": probs, "num_files": len(files), "class_index": class_index}
+        finally:
+            for p in tmp_paths:
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Abstract batch prediction failed: {str(e)}")
