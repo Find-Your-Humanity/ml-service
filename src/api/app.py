@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any
+from dotenv import load_dotenv
 import tempfile
 import json
 import os
@@ -17,6 +18,8 @@ from typing import List
 
 # FastAPI 인스턴스
 app = FastAPI(title="ML Bot Detection API")
+
+load_dotenv()
 
 # CORS 설정
 app.add_middleware(
