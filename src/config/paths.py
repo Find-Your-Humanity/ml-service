@@ -5,7 +5,8 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # 기본 디렉터리
-DEFAULT_MODEL_DIR = BASE_DIR / "behavior_analysis" / "models"
+# 사용자 행동 모델 아티팩트 기본 경로를 /root/models 로 지정
+DEFAULT_MODEL_DIR = Path("/root/models")
 DEFAULT_DATA_DIR = BASE_DIR / "data" / "behavior_data"
 
 # 환경변수로 오버라이드 가능
