@@ -1,5 +1,5 @@
 # ml_service/app.py
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any
@@ -82,9 +82,14 @@ def predict_bot(req: BehaviorDataRequest):
 
 
 # ===== CRNN Handwriting OCR Predict API =====
-# 모델/문자셋 경로 설정
+# 모델/문자셋 경로 설정: 모델 경로는 환경변수로만 지정
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CRNN_MODEL_PATH = PROJECT_ROOT / "src" / "crnn" / "model" / "best_model_by_cer.pth"
+
+# 모델 경로: 환경변수에서만 읽음 (미설정 시 에러)
+_ENV_CRNN_MODEL_PATH = os.environ.get("CRNN_MODEL_PATH") or os.environ.get("OCR_MODEL_PATH")
+CRNN_MODEL_PATH = Path(_ENV_CRNN_MODEL_PATH).resolve() if _ENV_CRNN_MODEL_PATH else None
+
+# charset 경로는 기존 기본 경로 유지 (원하면 CRNN_CHARSET_PATH 환경변수로 확장 가능)
 CRNN_CHARSET_PATH = PROJECT_ROOT / "src" / "crnn" / "model" / "charset.json"
 
 _crnn_predictor = None
@@ -94,6 +99,8 @@ def _get_crnn_predictor():
     if _crnn_predictor is None:
         # 지연 import로 초기 부하 최소화
         from src.crnn.inference import HandwritingPredictor
+        if CRNN_MODEL_PATH is None:
+            raise HTTPException(status_code=500, detail="CRNN model path not set. Set environment variable 'CRNN_MODEL_PATH' (or 'OCR_MODEL_PATH').")
         if not CRNN_MODEL_PATH.exists():
             raise HTTPException(status_code=500, detail=f"CRNN model not found: {CRNN_MODEL_PATH}")
         if not CRNN_CHARSET_PATH.exists():
@@ -201,7 +208,10 @@ async def predict_abstract_proba_batch(
     files: List[UploadFile] = File(...),
 ):
     try:
+        print(f"📥 [/predict-abstract-proba-batch] incoming: target_class='{target_class}', files={len(files) if files else 0}")
+        t0 = __import__("time").time()
         model, input_shape, class_list = _get_abstract_model()
+        t_model = __import__("time").time()
         try:
             class_index = class_list.index(target_class)
         except ValueError:
@@ -218,14 +228,23 @@ async def predict_abstract_proba_batch(
 
             import numpy as np
             batch = np.stack([_preprocess_image_to_tensor(p, input_shape) for p in tmp_paths], axis=0)
+            t_prep = __import__("time").time()
 
             # 예측
             preds = model.predict(batch)
+            t_pred = __import__("time").time()
             # 출력 형태: (N, num_classes)
             if preds.ndim != 2 or preds.shape[1] < (class_index + 1):
                 raise HTTPException(status_code=500, detail="Model output shape mismatch with class list")
 
             probs = preds[:, class_index].astype(float).tolist()
+            elapsed_model = int((t_model - t0) * 1000)
+            elapsed_prep = int((t_prep - t_model) * 1000)
+            elapsed_pred = int((t_pred - t_prep) * 1000)
+            print(
+                f"📦 [/predict-abstract-proba-batch] ok: num_files={len(files)}, class_index={class_index}, "
+                f"t_model={elapsed_model}ms, t_prep={elapsed_prep}ms, t_pred={elapsed_pred}ms"
+            )
             return {"probs": probs, "num_files": len(files), "class_index": class_index}
         finally:
             for p in tmp_paths:
@@ -236,5 +255,10 @@ async def predict_abstract_proba_batch(
     except HTTPException:
         raise
     except Exception as e:
+        try:
+            import time as _t
+            print(f"❌ [/predict-abstract-proba-batch] failed: {str(e)}")
+        except Exception:
+            pass
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Abstract batch prediction failed: {str(e)}")

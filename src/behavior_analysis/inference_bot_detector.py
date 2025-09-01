@@ -1,40 +1,33 @@
 # inference_bot_detector.py
-
 import torch
 import pandas as pd
 import numpy as np
 import joblib
 import json
-import sys
-import os
-from pathlib import Path
 from sklearn.preprocessing import MinMaxScaler
+from src.config.paths import get_model_file_path
 
-# config 모듈 import를 위한 경로 추가 (새 위치 기준)
-current_dir = Path(__file__).parent
-project_root = current_dir.parent.parent.parent.parent
-sys.path.append(str(project_root))
-sys.path.append(str(Path(__file__).resolve().parent.parent))
-
-from config.paths import get_model_file_path, get_data_file_path
 
 class AutoEncoder(torch.nn.Module):
-    def __init__(self, input_dim):
-        
+    def __init__(self, input_dim, hidden_dim=32, latent_dim=16, dropout_rate=0.0):
         super(AutoEncoder, self).__init__()
         self.encoder = torch.nn.Sequential(
-            torch.nn.Linear(input_dim, 32),
+            torch.nn.Linear(input_dim, hidden_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(32, 16)
+            torch.nn.Dropout(dropout_rate),
+            torch.nn.Linear(hidden_dim, latent_dim)
         )
         self.decoder = torch.nn.Sequential(
-            torch.nn.Linear(16, 32),
+            torch.nn.Linear(latent_dim, hidden_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(32, input_dim)
+            torch.nn.Dropout(dropout_rate),
+            torch.nn.Linear(hidden_dim, input_dim)
         )
 
     def forward(self, x):
-        return self.decoder(self.encoder(x))
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded)
+        return decoded
 
 def extract_features_from_json(path):
     with open(path, "r") as f:
@@ -83,9 +76,21 @@ def extract_features_from_json(path):
 
     return summary
 
-# 봇 탐지 함수, app.py에서 호출
 def detect_bot(json_path):
     feat = extract_features_from_json(json_path)
+    
+    # None 반환 시 처리
+    if feat is None:
+        return {
+            "score": 0.0,
+            "mse": float('inf'),
+            "threshold": 0.0,
+            "dynamic_threshold": 0,
+            "is_bot": True,
+            "features": {},
+            "error": "No mouse movement data found"
+        }
+    
     df = pd.DataFrame([feat])
 
     # ✅ feature_columns 불러오기
@@ -101,7 +106,8 @@ def detect_bot(json_path):
     scaled = scaler.transform(df)
     x = torch.tensor(scaled, dtype=torch.float32)
 
-    model = AutoEncoder(input_dim=x.shape[1])
+    # 그리드 서치 결과의 최적 파라미터 사용
+    model = AutoEncoder(input_dim=x.shape[1], hidden_dim=64, latent_dim=32, dropout_rate=0.0)
     model.load_state_dict(torch.load(get_model_file_path("model.pth")))
     model.eval()
 
@@ -112,15 +118,20 @@ def detect_bot(json_path):
         recon = model(x)
         mse = torch.mean((x - recon)**2, dim=1).item()
 
+    # 개선된 점수 계산 방식
+    # MSE가 매우 클 경우를 대비한 로그 스케일링 적용
     if mse > threshold:
+        # MSE가 threshold보다 클 때는 로그 비율로 점수 계산
         ratio = mse / threshold
-        if ratio > 1000:
-            score = max(0, 100 * (1-np.log10(ratio) / 10))
+        if ratio > 1000:  # 매우 큰 차이일 때
+            score = max(0, 100 * (1 - np.log10(ratio) / 10))  # 로그 스케일링
         else:
-            score = max(0, 100 * (1 - ratio))
+            score = max(0, 100 * (1 - ratio / 100))  # 선형 스케일링 (완화됨)
     else:
-        score = max(0, 100 * (1 - mse / threshold))
-
+        # 원래 공식 사용
+        score = max(0, 100 * (1 - (mse / threshold)))
+    
+    # 간단한 고정 임계값 사용
     is_bot = score < 50
 
     # NumPy 타입 -> Python 기본 타입으로 변환
@@ -131,21 +142,10 @@ def detect_bot(json_path):
         "score": round(float(score), 2),
         "mse": round(float(mse), 6),
         "threshold": round(float(threshold), 6),
-        "is_bot": is_bot,
-        "features": feat_serialized,
+        "is_bot": bool(is_bot),
+        "features": feat_serialized
     }
 
 if __name__ == "__main__":
-    # 테스트용 데이터 파일 경로
-    # 윈도우 절대경로 문자열 대신 데이터 디렉토리 기준 파일명만 사용
-    test_file = get_data_file_path("behavior_data_20250731_105033.json")
-    if test_file.exists():
-        result = detect_bot(test_file)
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-    else:
-        print(f"테스트 파일이 없습니다: {test_file}")
-        print("사용 가능한 데이터 파일들:")
-        data_dir = get_data_file_path("")
-        if data_dir.exists():
-            for file in data_dir.glob("*.json"):
-                print(f"  - {file.name}")
+    result = detect_bot("/Users/kang-yeongmo/userdata/behavior_data_20250731_105045.json")
+    print(json.dumps(result, indent=2, ensure_ascii=False))
