@@ -17,6 +17,9 @@ RUN apt-get update \
 # 애플리케이션 소스만 복사 (의존성은 PVC에서 동기화된 /opt/sitepkgs로 제공)
 COPY src/ ./src/
 
+# .env.production 파일 복사
+COPY .env.production ./.env
+
 EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=30s --start-period=10s --retries=3 \
