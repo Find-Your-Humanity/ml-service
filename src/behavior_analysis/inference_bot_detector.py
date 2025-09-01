@@ -1,11 +1,11 @@
 # inference_bot_detector.py
-
 import torch
 import pandas as pd
 import numpy as np
 import joblib
 import json
 from sklearn.preprocessing import MinMaxScaler
+from src.config.paths import get_model_file_path
 
 class AutoEncoder(torch.nn.Module):
     def __init__(self, input_dim, hidden_dim=32, latent_dim=16, dropout_rate=0.0):
@@ -93,7 +93,7 @@ def detect_bot(json_path):
     df = pd.DataFrame([feat])
 
     # ✅ feature_columns 불러오기
-    feature_columns = joblib.load("feature_columns.pkl")
+    feature_columns = joblib.load(get_model_file_path("feature_columns.pkl"))
 
     # ✅ 누락된 컬럼은 0으로 채우고, 순서 맞추기
     for col in feature_columns:
@@ -101,16 +101,16 @@ def detect_bot(json_path):
             df[col] = 0
     df = df[feature_columns]
 
-    scaler = joblib.load("scaler.pkl")
+    scaler = joblib.load(get_model_file_path("scaler.pkl"))
     scaled = scaler.transform(df)
     x = torch.tensor(scaled, dtype=torch.float32)
 
     # 그리드 서치 결과의 최적 파라미터 사용
     model = AutoEncoder(input_dim=x.shape[1], hidden_dim=64, latent_dim=32, dropout_rate=0.0)
-    model.load_state_dict(torch.load("model.pth"))
+    model.load_state_dict(torch.load(get_model_file_path("model.pth")))
     model.eval()
 
-    with open("threshold.txt", "r") as f:
+    with open(get_model_file_path("threshold.txt"), "r") as f:
         threshold = float(f.read())
 
     with torch.no_grad():
