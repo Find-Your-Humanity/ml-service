@@ -167,37 +167,27 @@ def _get_yolo_model():
 
 
 class ImagePredictRequest(BaseModel):
-    image_url: Optional[str] = None
+    image_url: str
 
 
 @app.post("/predict-image")
-async def predict_image(req: Optional[ImagePredictRequest] = None, file: UploadFile = File(None)):
+async def predict_image(req: ImagePredictRequest):
     try:
-        # 입력 소스 확정
-        image_url = None
-        if req and isinstance(req, ImagePredictRequest):
-            image_url = (req.image_url or "").strip() or None
+        image_url = (req.image_url or "").strip()
+        if not image_url:
+            raise HTTPException(status_code=400, detail="image_url is required")
 
         tmp_path: Optional[str] = None
         try:
-            if file is not None:
-                # multipart 파일 입력
-                suffix = Path(file.filename or "").suffix or ".jpg"
-                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                    tmp.write(await file.read())
-                    tmp_path = tmp.name
-            elif image_url:
-                # URL 다운로드 후 임시 저장
-                import httpx  # type: ignore
-                r = httpx.get(image_url, timeout=15.0)
-                r.raise_for_status()
-                # 확장자는 간단히 추정
-                suffix = ".jpg"
-                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                    tmp.write(r.content)
-                    tmp_path = tmp.name
-            else:
-                raise HTTPException(status_code=400, detail="Provide file or image_url")
+            # URL 다운로드 후 임시 저장
+            import httpx  # type: ignore
+            r = httpx.get(image_url, timeout=15.0)
+            r.raise_for_status()
+            # 확장자는 간단히 추정
+            suffix = ".jpg"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(r.content)
+                tmp_path = tmp.name
 
             # 모델 추론
             model = _get_yolo_model()
