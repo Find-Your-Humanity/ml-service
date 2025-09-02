@@ -12,6 +12,8 @@ import sys
 import traceback
 from src.config.paths import ensure_directories
 from typing import List
+from typing import Optional
+from src.config.paths import get_model_file_path
  
 
 # detect_bot은 메모리 사용 이슈가 있어 요청 시점에 지연 import 합니다.
@@ -144,6 +146,115 @@ async def predict_text(file: UploadFile = File(...)):
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Text prediction failed: {str(e)}")
 
+
+# ===== YOLO Object Detection Predict API =====
+_yolo_model = None
+
+def _get_yolo_model():
+    global _yolo_model
+    if _yolo_model is None:
+        try:
+            from ultralytics import YOLO  # type: ignore
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"ultralytics not installed: {e}")
+        # 항상 /root/models/best.pt 사용
+        weights = get_model_file_path("best.pt")
+        try:
+            _yolo_model = YOLO(weights)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load YOLO weights '{weights}': {e}")
+    return _yolo_model
+
+
+class ImagePredictRequest(BaseModel):
+    image_url: Optional[str] = None
+
+
+@app.post("/predict-image")
+async def predict_image(req: Optional[ImagePredictRequest] = None, file: UploadFile = File(None)):
+    try:
+        # 입력 소스 확정
+        image_url = None
+        if req and isinstance(req, ImagePredictRequest):
+            image_url = (req.image_url or "").strip() or None
+
+        tmp_path: Optional[str] = None
+        try:
+            if file is not None:
+                # multipart 파일 입력
+                suffix = Path(file.filename or "").suffix or ".jpg"
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(await file.read())
+                    tmp_path = tmp.name
+            elif image_url:
+                # URL 다운로드 후 임시 저장
+                import httpx  # type: ignore
+                r = httpx.get(image_url, timeout=15.0)
+                r.raise_for_status()
+                # 확장자는 간단히 추정
+                suffix = ".jpg"
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(r.content)
+                    tmp_path = tmp.name
+            else:
+                raise HTTPException(status_code=400, detail="Provide file or image_url")
+
+            # 모델 추론
+            model = _get_yolo_model()
+            results = model.predict(source=tmp_path, imgsz=int(os.environ.get("YOLO_IMG_SIZE", "768")), conf=float(os.environ.get("YOLO_CONF", "0.25")), iou=float(os.environ.get("YOLO_IOU", "0.45")), device=0 if (os.environ.get("YOLO_DEVICE", "auto") != "cpu" and _torch_cuda_available()) else "cpu", verbose=False)
+            if not results:
+                return {"width": None, "height": None, "boxes": []}
+            res = results[0]
+
+            # 원본 크기
+            try:
+                H, W = int(res.orig_shape[0]), int(res.orig_shape[1])
+            except Exception:
+                # fallback by PIL
+                from PIL import Image
+                with Image.open(tmp_path) as im:
+                    W, H = im.size
+
+            # 박스 파싱
+            boxes_out: List[Dict[str, Any]] = []
+            try:
+                import numpy as np  # type: ignore
+                xyxy = res.boxes.xyxy.cpu().numpy() if hasattr(res.boxes, 'xyxy') else np.zeros((0,4))
+                confs = res.boxes.conf.cpu().numpy().tolist() if hasattr(res.boxes, 'conf') else []
+                clss = res.boxes.cls.cpu().numpy().tolist() if hasattr(res.boxes, 'cls') else []
+                names = res.names if hasattr(res, 'names') else getattr(getattr(res, 'model', None), 'names', {})
+                for i in range(len(confs)):
+                    x1, y1, x2, y2 = [float(v) for v in xyxy[i]]
+                    cid = int(clss[i]) if i < len(clss) else -1
+                    cname = names.get(cid, str(cid)) if isinstance(names, dict) else str(cid)
+                    boxes_out.append({
+                        "x1": x1, "y1": y1, "x2": x2, "y2": y2,
+                        "conf": float(confs[i]),
+                        "class_id": cid,
+                        "class_name": cname,
+                    })
+            except Exception:
+                boxes_out = []
+
+            return {"width": W, "height": H, "boxes": boxes_out}
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Image prediction failed: {str(e)}")
+
+def _torch_cuda_available() -> bool:
+    try:
+        import torch  # type: ignore
+        return torch.cuda.is_available()
+    except Exception:
+        return False
 
 # ===== Abstract Image Classification (Keras .h5) =====
 _abstract_model = None

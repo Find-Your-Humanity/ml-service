@@ -16,7 +16,6 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", str(DEFAULT_DATA_DIR))).resolve()
 # 로그 디렉터리
 LOG_DIR = BASE_DIR / "logs"
 
-
 def ensure_directories() -> None:
     """모델/데이터/로그 디렉터리 생성(없으면)."""
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
