@@ -86,7 +86,7 @@ def detect_bot(json_path):
         print("❌ [DEBUG] No features extracted")
         return {
             "score": 0.0,
-            "mse": float('inf'),
+            "mse": 999999.0,  # float('inf') 대신 큰 값 사용
             "threshold": 0.0,
             "dynamic_threshold": 0,
             "is_bot": True,
@@ -168,14 +168,26 @@ def detect_bot(json_path):
     # 간단한 고정 임계값 사용
     is_bot = score < 50
 
-    # NumPy 타입 -> Python 기본 타입으로 변환
-    feat_serialized = {k: (v.item() if isinstance(v, (np.integer, np.floating)) else v)
-                       for k, v in feat.items()}
+    # NumPy 타입 -> Python 기본 타입으로 변환 (무한대/NaN 값 처리)
+    def safe_convert(value):
+        if isinstance(value, (np.integer, np.floating)):
+            if np.isinf(value) or np.isnan(value):
+                return 0.0
+            return value.item()
+        return value
+    
+    feat_serialized = {k: safe_convert(v) for k, v in feat.items()}
+
+    # JSON 직렬화를 위해 무한대 값 처리
+    def safe_float(value):
+        if np.isinf(value) or np.isnan(value):
+            return 0.0
+        return round(float(value), 6)
 
     return {
         "score": round(float(score), 2),
-        "mse": round(float(mse), 6),
-        "threshold": round(float(threshold), 6),
+        "mse": safe_float(mse),
+        "threshold": safe_float(threshold),
         "is_bot": bool(is_bot),
         "features": feat_serialized
     }
