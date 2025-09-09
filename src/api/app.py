@@ -91,8 +91,14 @@ def predict_bot(req: BehaviorDataRequest):
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # 모델 경로: 환경변수에서만 읽음 (미설정 시 에러)
-_ENV_CRNN_MODEL_PATH = os.environ.get("CRNN_MODEL_PATH") or os.environ.get("OCR_MODEL_PATH")
+_ENV_CRNN_MODEL_PATH = os.environ.get("OCR_MODEL_PATH") or os.environ.get("CRNN_MODEL_PATH")
+print(f"🔍 [DEBUG] OCR_MODEL_PATH env: {os.environ.get('OCR_MODEL_PATH')}")
+print(f"🔍 [DEBUG] CRNN_MODEL_PATH env: {os.environ.get('CRNN_MODEL_PATH')}")
+print(f"🔍 [DEBUG] Selected path: {_ENV_CRNN_MODEL_PATH}")
 CRNN_MODEL_PATH = Path(_ENV_CRNN_MODEL_PATH).resolve() if _ENV_CRNN_MODEL_PATH else None
+if CRNN_MODEL_PATH:
+    print(f"🔍 [DEBUG] Resolved path: {CRNN_MODEL_PATH}")
+    print(f"🔍 [DEBUG] Path exists: {CRNN_MODEL_PATH.exists()}")
 
 # charset 경로는 기존 기본 경로 유지 (원하면 CRNN_CHARSET_PATH 환경변수로 확장 가능)
 CRNN_CHARSET_PATH = PROJECT_ROOT / "src" / "crnn" / "model" / "charset.json"
