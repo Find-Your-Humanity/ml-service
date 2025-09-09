@@ -25,7 +25,11 @@ def ensure_directories() -> None:
 
 def get_model_file_path(filename: str) -> str:
     """모델 파일 경로 반환"""
-    return str(MODEL_DIR / filename)
+    path = str(MODEL_DIR / filename)
+    print(f"🔍 [DEBUG] get_model_file_path: {filename} -> {path}")
+    print(f"🔍 [DEBUG] MODEL_DIR: {MODEL_DIR}")
+    print(f"🔍 [DEBUG] Path exists: {Path(path).exists()}")
+    return path
 
 
 def get_data_file_path(filename: str) -> Path:

@@ -95,10 +95,30 @@ _ENV_CRNN_MODEL_PATH = os.environ.get("OCR_MODEL_PATH") or os.environ.get("CRNN_
 print(f"🔍 [DEBUG] OCR_MODEL_PATH env: {os.environ.get('OCR_MODEL_PATH')}")
 print(f"🔍 [DEBUG] CRNN_MODEL_PATH env: {os.environ.get('CRNN_MODEL_PATH')}")
 print(f"🔍 [DEBUG] Selected path: {_ENV_CRNN_MODEL_PATH}")
+
 CRNN_MODEL_PATH = Path(_ENV_CRNN_MODEL_PATH).resolve() if _ENV_CRNN_MODEL_PATH else None
 if CRNN_MODEL_PATH:
     print(f"🔍 [DEBUG] Resolved path: {CRNN_MODEL_PATH}")
     print(f"🔍 [DEBUG] Path exists: {CRNN_MODEL_PATH.exists()}")
+    print(f"🔍 [DEBUG] Path is absolute: {CRNN_MODEL_PATH.is_absolute()}")
+    print(f"🔍 [DEBUG] Path parent exists: {CRNN_MODEL_PATH.parent.exists()}")
+    print(f"🔍 [DEBUG] Path parent: {CRNN_MODEL_PATH.parent}")
+    
+    # 디렉토리 내용 확인
+    try:
+        parent_files = list(CRNN_MODEL_PATH.parent.iterdir())
+        print(f"🔍 [DEBUG] Files in parent dir: {[f.name for f in parent_files]}")
+    except Exception as e:
+        print(f"🔍 [DEBUG] Error listing parent dir: {e}")
+    
+    # 파일 권한 확인
+    try:
+        if CRNN_MODEL_PATH.exists():
+            stat_info = CRNN_MODEL_PATH.stat()
+            print(f"🔍 [DEBUG] File size: {stat_info.st_size} bytes")
+            print(f"🔍 [DEBUG] File permissions: {oct(stat_info.st_mode)}")
+    except Exception as e:
+        print(f"🔍 [DEBUG] Error getting file stats: {e}")
 
 # charset 경로는 기존 기본 경로 유지 (원하면 CRNN_CHARSET_PATH 환경변수로 확장 가능)
 CRNN_CHARSET_PATH = PROJECT_ROOT / "src" / "crnn" / "model" / "charset.json"

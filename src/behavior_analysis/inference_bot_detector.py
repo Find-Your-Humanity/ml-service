@@ -76,10 +76,14 @@ def extract_features_from_json(path):
     return summary
 
 def detect_bot(json_path):
+    print(f"🔍 [DEBUG] detect_bot called with: {json_path}")
+    
     feat = extract_features_from_json(json_path)
+    print(f"🔍 [DEBUG] Extracted features: {feat}")
     
     # None 반환 시 처리
     if feat is None:
+        print("❌ [DEBUG] No features extracted")
         return {
             "score": 0.0,
             "mse": float('inf'),
@@ -91,9 +95,17 @@ def detect_bot(json_path):
         }
     
     df = pd.DataFrame([feat])
+    print(f"🔍 [DEBUG] DataFrame created: {df.shape}")
 
     # ✅ feature_columns 불러오기
-    feature_columns = joblib.load(get_model_file_path("feature_columns.pkl"))
+    try:
+        feature_columns_path = get_model_file_path("feature_columns.pkl")
+        print(f"🔍 [DEBUG] Loading feature_columns from: {feature_columns_path}")
+        feature_columns = joblib.load(feature_columns_path)
+        print(f"🔍 [DEBUG] Feature columns loaded: {len(feature_columns)} columns")
+    except Exception as e:
+        print(f"❌ [DEBUG] Error loading feature_columns: {e}")
+        raise
 
     # ✅ 누락된 컬럼은 0으로 채우고, 순서 맞추기
     for col in feature_columns:
@@ -101,17 +113,40 @@ def detect_bot(json_path):
             df[col] = 0
     df = df[feature_columns]
 
-    scaler = joblib.load(get_model_file_path("scaler.pkl"))
+    try:
+        scaler_path = get_model_file_path("scaler.pkl")
+        print(f"🔍 [DEBUG] Loading scaler from: {scaler_path}")
+        scaler = joblib.load(scaler_path)
+        print(f"🔍 [DEBUG] Scaler loaded successfully")
+    except Exception as e:
+        print(f"❌ [DEBUG] Error loading scaler: {e}")
+        raise
+    
     scaled = scaler.transform(df)
     x = torch.tensor(scaled, dtype=torch.float32)
+    print(f"🔍 [DEBUG] Scaled data shape: {x.shape}")
 
     # 그리드 서치 결과의 최적 파라미터 사용
-    model = AutoEncoder(input_dim=x.shape[1], hidden_dim=64, latent_dim=32, dropout_rate=0.0)
-    model.load_state_dict(torch.load(get_model_file_path("model.pth")))
-    model.eval()
+    try:
+        model_path = get_model_file_path("model.pth")
+        print(f"🔍 [DEBUG] Loading model from: {model_path}")
+        model = AutoEncoder(input_dim=x.shape[1], hidden_dim=64, latent_dim=32, dropout_rate=0.0)
+        model.load_state_dict(torch.load(model_path))
+        model.eval()
+        print(f"🔍 [DEBUG] Model loaded successfully")
+    except Exception as e:
+        print(f"❌ [DEBUG] Error loading model: {e}")
+        raise
 
-    with open(get_model_file_path("threshold.txt"), "r") as f:
-        threshold = float(f.read())
+    try:
+        threshold_path = get_model_file_path("threshold.txt")
+        print(f"🔍 [DEBUG] Loading threshold from: {threshold_path}")
+        with open(threshold_path, "r") as f:
+            threshold = float(f.read())
+        print(f"🔍 [DEBUG] Threshold loaded: {threshold}")
+    except Exception as e:
+        print(f"❌ [DEBUG] Error loading threshold: {e}")
+        raise
 
     with torch.no_grad():
         recon = model(x)
