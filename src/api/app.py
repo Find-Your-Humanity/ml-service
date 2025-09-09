@@ -123,7 +123,7 @@ def _get_crnn_predictor():
 
 
 @app.post("/predict-text")
-async def predict_text(file: UploadFile = File(...)):
+async def predict_text(file: UploadFile = File(...), lexicon: Optional[str] = Form(None)):
     try:
         predictor = _get_crnn_predictor()
         backend = "pil"
@@ -133,7 +133,17 @@ async def predict_text(file: UploadFile = File(...)):
             tmp.write(await file.read())
             tmp_path = tmp.name
         try:
-            text = predictor.predict(tmp_path)
+            # lexicon은 JSON 배열 문자열로 전달됨 (선택)
+            lex_list = None
+            if lexicon:
+                try:
+                    parsed = json.loads(lexicon)
+                    if isinstance(parsed, list):
+                        lex_list = [str(x) for x in parsed if isinstance(x, (str,))]
+                except Exception:
+                    lex_list = None
+
+            text = predictor.predict(tmp_path, lexicon=lex_list)
         finally:
             try:
                 os.unlink(tmp_path)

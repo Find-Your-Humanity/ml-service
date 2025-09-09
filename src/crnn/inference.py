@@ -31,8 +31,36 @@ class HandwritingPredictor:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()
     
-    def predict(self, image):
-        """이미지에서 텍스트 예측"""
+    def _forward_logits(self, img_tensor: torch.Tensor) -> torch.Tensor:
+        """CRNN 순전파하여 원시 logits 반환: [T, B, C]"""
+        with torch.no_grad():
+            outputs = self.model(img_tensor)
+        return outputs
+
+    def _decode_with_pyctc(self, logits_np: np.ndarray, lexicon: list | None = None, beam_width: int = 50):
+        """pyctcdecode 기반 빔서치 디코딩 (소형 lexicon 옵션). logits_np: [T, C]."""
+        try:
+            from pyctcdecode import build_ctcdecoder  # type: ignore
+        except Exception as e:
+            raise RuntimeError(f"pyctcdecode not available: {e}")
+
+        # labels: 0=CTC_BLANK, 1..C-1 = idx_to_char[1:]
+        labels = ["CTC_BLANK"] + [str(ch) for ch in self.idx_to_char[1:]]
+        decoder = build_ctcdecoder(labels=labels, unigram_list=(lexicon or None))
+
+        # pyctcdecode expects shape (T, C)
+        beams = decoder.decode_beams(logits_np, beam_width=beam_width, prune_history=True)
+        if not beams:
+            return "", {"avg_logprob": None, "margin": None}
+        top1 = beams[0]
+        top2 = beams[1] if len(beams) > 1 else None
+        text = top1.text or ""
+        avg_logprob = float(top1.logit_score) / max(1, len(text))
+        margin = float(top1.logit_score - (top2.logit_score if top2 is not None else 0.0))
+        return text, {"avg_logprob": avg_logprob, "margin": margin}
+
+    def predict(self, image, lexicon: list | None = None):
+        """이미지에서 텍스트 예측 (lexicon 제공 시 pyctcdecode 빔서치 사용)."""
         # 이미지 전처리 (백엔드에서 하던 전처리를 이곳으로 이동)
         if isinstance(image, str):
             img = Image.open(image)
@@ -68,10 +96,24 @@ class HandwritingPredictor:
         img_tensor = img_tensor.to(self.device)
         
         # 예측
-        with torch.no_grad():
-            outputs = self.model(img_tensor)
-            predictions = decode_prediction(outputs, self.idx_to_char)
-        
+        outputs = self._forward_logits(img_tensor)  # [T, B, C]
+
+        if lexicon is not None and isinstance(lexicon, list) and len(lexicon) > 0:
+            # pyctcdecode 빔서치 (소형 lexicon)
+            logits_np = outputs[:, 0, :].detach().cpu().numpy().astype(np.float32)
+            text, meta = self._decode_with_pyctc(logits_np, lexicon=lexicon, beam_width=50)
+            # 게이팅 파라미터는 호출자에서 활용 가능
+            # return text
+            return text
+
+        # [기존 Greedy 디코딩 경로]
+        # with torch.no_grad():
+        #     outputs = self.model(img_tensor)
+        #     predictions = decode_prediction(outputs, self.idx_to_char)
+        # return predictions[0]
+
+        # Greedy로 폴백
+        predictions = decode_prediction(outputs, self.idx_to_char)
         return predictions[0]
 
 def main(args):
