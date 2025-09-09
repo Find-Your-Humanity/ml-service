@@ -108,23 +108,39 @@ _crnn_predictor = None
 def _get_crnn_predictor():
     global _crnn_predictor
     if _crnn_predictor is None:
+        print("🚀 [DEBUG] Starting CRNN predictor initialization...")
         # 지연 import로 초기 부하 최소화
         from src.crnn.inference import HandwritingPredictor
+        print("✅ [DEBUG] HandwritingPredictor imported successfully")
+        
         if CRNN_MODEL_PATH is None:
+            print("❌ [DEBUG] CRNN_MODEL_PATH is None")
             raise HTTPException(status_code=500, detail="CRNN model path not set. Set environment variable 'CRNN_MODEL_PATH' (or 'OCR_MODEL_PATH').")
+        
+        print(f"🔍 [DEBUG] Checking model path: {CRNN_MODEL_PATH}")
         if not CRNN_MODEL_PATH.exists():
+            print(f"❌ [DEBUG] Model file does not exist: {CRNN_MODEL_PATH}")
             raise HTTPException(status_code=500, detail=f"CRNN model not found: {CRNN_MODEL_PATH}")
+        
+        print(f"🔍 [DEBUG] Checking charset path: {CRNN_CHARSET_PATH}")
         if not CRNN_CHARSET_PATH.exists():
+            print(f"❌ [DEBUG] Charset file does not exist: {CRNN_CHARSET_PATH}")
             raise HTTPException(status_code=500, detail=f"CRNN charset not found: {CRNN_CHARSET_PATH}")
+        
+        print("📖 [DEBUG] Loading charset...")
         with open(CRNN_CHARSET_PATH, "r", encoding="utf-8") as f:
             charset = json.load(f)
         idx_to_char = charset["idx_to_char"]
         char_to_idx = charset["char_to_idx"]
+        print(f"✅ [DEBUG] Charset loaded: {len(char_to_idx)} characters")
+        
+        print("🤖 [DEBUG] Creating HandwritingPredictor...")
         _crnn_predictor = HandwritingPredictor(
             str(CRNN_MODEL_PATH),
             char_to_idx=char_to_idx,
             idx_to_char=idx_to_char,
         )
+        print("✅ [DEBUG] CRNN predictor initialized successfully")
     return _crnn_predictor
 
 
