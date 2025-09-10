@@ -44,8 +44,14 @@ class HandwritingPredictor:
         except Exception as e:
             raise RuntimeError(f"pyctcdecode not available: {e}")
 
-        # labels: 0=CTC_BLANK, 1..C-1 = idx_to_char[1:]
-        labels = ["CTC_BLANK"] + [str(ch) for ch in self.idx_to_char[1:]]
+        # labels: CTC_BLANK를 "CTC_BLANK"로 명시적으로 처리
+        labels = []
+        for i, ch in enumerate(self.idx_to_char):
+            if i == 0 and (ch == "" or ch == "CTC_BLANK"):
+                labels.append("CTC_BLANK")
+            else:
+                labels.append(str(ch))
+        print(f"🔧 [pyctcdecode] labels 생성: {len(labels)}개 문자 (CTC_BLANK 포함)")
         
         # 최신 pyctcdecode API에 맞게 수정 (디버깅 포함)
         try:
