@@ -37,110 +37,10 @@ class HandwritingPredictor:
             outputs = self.model(img_tensor)
         return outputs
 
-    def _decode_with_pyctc(self, logits_np: np.ndarray, lexicon: list | None = None, beam_width: int = 50):
-        """pyctcdecode 기반 빔서치 디코딩 (소형 lexicon 옵션). logits_np: [T, C]."""
-        try:
-            from pyctcdecode import build_ctcdecoder  # type: ignore
-        except Exception as e:
-            raise RuntimeError(f"pyctcdecode not available: {e}")
 
-        # labels: idx_to_char를 그대로 사용 (이미 CTC_BLANK 포함됨)
-        labels = [str(ch) if ch != "" else "CTC_BLANK" for ch in self.idx_to_char]
-        print(f"🔧 [pyctcdecode] labels 생성: {len(labels)}개 문자")
-        
-        # lexicon 사용 가능성 검사 및 디코더 생성
-        if lexicon and len(lexicon) > 0:
-            print(f"🔧 [pyctcdecode] lexicon 감지됨: {lexicon}")
-            print("🔧 [pyctcdecode] lexicon을 후처리로 활용하여 vocabulary 크기 유지")
-            # lexicon 사용 시 pyctcdecode가 vocabulary를 확장하여 크기 불일치 발생
-            # 기본 디코더 사용 후 lexicon을 활용한 후처리 수행
-            decoder = build_ctcdecoder(labels=labels)
-            print("✅ [pyctcdecode] 기본 디코더 생성 완료 (lexicon 후처리 모드)")
-        else:
-            # lexicon이 없을 때
-            print("🔧 [pyctcdecode] lexicon 없음, 기본 디코더 생성")
-            decoder = build_ctcdecoder(labels=labels)
-            print("✅ [pyctcdecode] 기본 디코더 생성 완료")
-
-        # pyctcdecode expects shape (T, C)
-        print(f"🔧 [pyctcdecode] 빔서치 디코딩 시작: beam_width={beam_width}, logits_shape={logits_np.shape}")
-        beams = decoder.decode_beams(logits_np, beam_width=beam_width, prune_history=True)
-        print(f"📊 [pyctcdecode] 빔서치 결과: {len(beams)}개 빔 생성")
-        
-        if not beams:
-            print("⚠️ [pyctcdecode] 빔서치 결과 없음")
-            return "", {"avg_logprob": None, "margin": None}
-            
-        top1 = beams[0]
-        top2 = beams[1] if len(beams) > 1 else None
-        text = top1.text or ""
-        avg_logprob = float(top1.logit_score) / max(1, len(text))
-        margin = float(top1.logit_score - (top2.logit_score if top2 is not None else 0.0))
-        
-        # lexicon 후처리: 기본 디코딩 결과를 lexicon과 매칭하여 개선
-        if lexicon and len(lexicon) > 0:
-            print(f"🔧 [lexicon-post] 후처리 시작: 원본='{text}', lexicon={lexicon}")
-            improved_text = self._apply_lexicon_postprocessing(text, lexicon)
-            if improved_text != text:
-                print(f"✅ [lexicon-post] 개선됨: '{text}' → '{improved_text}'")
-                text = improved_text
-            else:
-                print(f"ℹ️ [lexicon-post] 개선 없음: '{text}'")
-        
-        print(f"✅ [pyctcdecode] 디코딩 완료: text='{text}', avg_logprob={avg_logprob:.4f}, margin={margin:.4f}")
-        return text, {"avg_logprob": avg_logprob, "margin": margin}
-
-    def _apply_lexicon_postprocessing(self, text: str, lexicon: list) -> str:
-        """lexicon을 활용한 후처리: 기본 디코딩 결과를 lexicon과 매칭하여 개선"""
-        if not text or not lexicon:
-            return text
-            
-        # 1. 정확한 매칭 확인
-        if text in lexicon:
-            print(f"🎯 [lexicon-post] 정확한 매칭 발견: '{text}'")
-            return text
-            
-        # 2. 유사도 기반 매칭 (편집 거리)
-        best_match = None
-        min_distance = float('inf')
-        
-        for word in lexicon:
-            # 간단한 편집 거리 계산 (Levenshtein distance)
-            distance = self._levenshtein_distance(text, word)
-            if distance < min_distance:
-                min_distance = distance
-                best_match = word
-                
-        # 3. 임계값 기반 매칭 (편집 거리가 너무 크면 원본 유지)
-        if best_match and min_distance <= max(1, len(text) // 2):
-            print(f"🔧 [lexicon-post] 유사도 매칭: '{text}' → '{best_match}' (거리: {min_distance})")
-            return best_match
-        else:
-            print(f"ℹ️ [lexicon-post] 유사한 단어 없음: '{text}' (최소거리: {min_distance})")
-            return text
-    
-    def _levenshtein_distance(self, s1: str, s2: str) -> int:
-        """두 문자열 간의 편집 거리 계산"""
-        if len(s1) < len(s2):
-            return self._levenshtein_distance(s2, s1)
-        
-        if len(s2) == 0:
-            return len(s1)
-        
-        previous_row = list(range(len(s2) + 1))
-        for i, c1 in enumerate(s1):
-            current_row = [i + 1]
-            for j, c2 in enumerate(s2):
-                insertions = previous_row[j + 1] + 1
-                deletions = current_row[j] + 1
-                substitutions = previous_row[j] + (c1 != c2)
-                current_row.append(min(insertions, deletions, substitutions))
-            previous_row = current_row
-            
-        return previous_row[-1]
 
     def predict(self, image, lexicon: list | None = None):
-        """이미지에서 텍스트 예측 (lexicon 제공 시 pyctcdecode 빔서치 사용)."""
+        """이미지에서 텍스트 예측 (Greedy 디코딩 사용)."""
         # 이미지 전처리 (백엔드에서 하던 전처리를 이곳으로 이동)
         if isinstance(image, str):
             img = Image.open(image)
@@ -178,21 +78,7 @@ class HandwritingPredictor:
         # 예측
         outputs = self._forward_logits(img_tensor)  # [T, B, C]
 
-        if lexicon is not None and isinstance(lexicon, list) and len(lexicon) > 0:
-            # pyctcdecode 빔서치 (소형 lexicon)
-            logits_np = outputs[:, 0, :].detach().cpu().numpy().astype(np.float32)
-            text, meta = self._decode_with_pyctc(logits_np, lexicon=lexicon, beam_width=50)
-            # 게이팅 파라미터는 호출자에서 활용 가능
-            # return text
-            return text
-
-        # [기존 Greedy 디코딩 경로]
-        # with torch.no_grad():
-        #     outputs = self.model(img_tensor)
-        #     predictions = decode_prediction(outputs, self.idx_to_char)
-        # return predictions[0]
-
-        # Greedy로 폴백
+        # Greedy 디코딩만 사용
         predictions = decode_prediction(outputs, self.idx_to_char)
         return predictions[0]
 
