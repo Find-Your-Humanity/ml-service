@@ -148,25 +148,35 @@ def detect_bot(json_path):
         print(f"❌ [DEBUG] Error loading threshold: {e}")
         raise
 
+    print("🔍 [DEBUG] Starting model inference...")
     with torch.no_grad():
+        print("🔍 [DEBUG] Running model forward pass...")
         recon = model(x)
+        print("🔍 [DEBUG] Model forward pass completed")
         mse = torch.mean((x - recon)**2, dim=1).item()
+        print(f"🔍 [DEBUG] MSE calculated: {mse}")
 
+    print("🔍 [DEBUG] Starting score calculation...")
     # 개선된 점수 계산 방식
     # MSE가 매우 클 경우를 대비한 로그 스케일링 적용
     if mse > threshold:
         # MSE가 threshold보다 클 때는 로그 비율로 점수 계산
         ratio = mse / threshold
+        print(f"🔍 [DEBUG] MSE > threshold, ratio: {ratio}")
         if ratio > 1000:  # 매우 큰 차이일 때
             score = max(0, 100 * (1 - np.log10(ratio) / 10))  # 로그 스케일링
+            print(f"🔍 [DEBUG] Using log scaling, score: {score}")
         else:
             score = max(0, 100 * (1 - ratio / 100))  # 선형 스케일링 (완화됨)
+            print(f"🔍 [DEBUG] Using linear scaling, score: {score}")
     else:
         # 원래 공식 사용
         score = max(0, 100 * (1 - (mse / threshold)))
+        print(f"🔍 [DEBUG] Using original formula, score: {score}")
     
     # 간단한 고정 임계값 사용
     is_bot = score < 50
+    print(f"🔍 [DEBUG] Bot detection result: is_bot={is_bot}")
 
     # NumPy 타입 -> Python 기본 타입으로 변환 (무한대/NaN 값 처리)
     def safe_convert(value):

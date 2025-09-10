@@ -46,17 +46,43 @@ class HandwritingPredictor:
 
         # labels: 0=CTC_BLANK, 1..C-1 = idx_to_char[1:]
         labels = ["CTC_BLANK"] + [str(ch) for ch in self.idx_to_char[1:]]
-        decoder = build_ctcdecoder(labels=labels, unigram_list=(lexicon or None))
+        
+        # 최신 pyctcdecode API에 맞게 수정 (디버깅 포함)
+        try:
+            # 새로운 API: unigrams 파라미터 사용
+            print(f"🔧 [pyctcdecode] 새로운 API 시도: unigrams={lexicon is not None}")
+            decoder = build_ctcdecoder(labels=labels, unigrams=(lexicon or None))
+            print("✅ [pyctcdecode] 새로운 API 성공: unigrams 파라미터 사용")
+        except TypeError as e:
+            print(f"⚠️ [pyctcdecode] 새로운 API 실패: {e}")
+            try:
+                # 이전 API: unigram_list 파라미터 사용 (하위 호환성)
+                print(f"🔧 [pyctcdecode] 이전 API 시도: unigram_list={lexicon is not None}")
+                decoder = build_ctcdecoder(labels=labels, unigram_list=(lexicon or None))
+                print("✅ [pyctcdecode] 이전 API 성공: unigram_list 파라미터 사용")
+            except TypeError as e2:
+                print(f"⚠️ [pyctcdecode] 이전 API 실패: {e2}")
+                # lexicon 없이 기본 디코더 생성
+                print("🔧 [pyctcdecode] 기본 디코더 생성: lexicon 없음")
+                decoder = build_ctcdecoder(labels=labels)
+                print("✅ [pyctcdecode] 기본 디코더 성공: lexicon 없이 생성")
 
         # pyctcdecode expects shape (T, C)
+        print(f"🔧 [pyctcdecode] 빔서치 디코딩 시작: beam_width={beam_width}, logits_shape={logits_np.shape}")
         beams = decoder.decode_beams(logits_np, beam_width=beam_width, prune_history=True)
+        print(f"📊 [pyctcdecode] 빔서치 결과: {len(beams)}개 빔 생성")
+        
         if not beams:
+            print("⚠️ [pyctcdecode] 빔서치 결과 없음")
             return "", {"avg_logprob": None, "margin": None}
+            
         top1 = beams[0]
         top2 = beams[1] if len(beams) > 1 else None
         text = top1.text or ""
         avg_logprob = float(top1.logit_score) / max(1, len(text))
         margin = float(top1.logit_score - (top2.logit_score if top2 is not None else 0.0))
+        
+        print(f"✅ [pyctcdecode] 디코딩 완료: text='{text}', avg_logprob={avg_logprob:.4f}, margin={margin:.4f}")
         return text, {"avg_logprob": avg_logprob, "margin": margin}
 
     def predict(self, image, lexicon: list | None = None):
