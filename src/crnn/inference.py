@@ -48,25 +48,56 @@ class HandwritingPredictor:
         labels = [str(ch) if ch != "" else "CTC_BLANK" for ch in self.idx_to_char]
         print(f"🔧 [pyctcdecode] labels 생성: {len(labels)}개 문자")
         
-        # 최신 pyctcdecode API에 맞게 수정 (디버깅 포함)
-        try:
-            # 새로운 API: unigrams 파라미터 사용
-            print(f"🔧 [pyctcdecode] 새로운 API 시도: unigrams={lexicon is not None}")
-            decoder = build_ctcdecoder(labels=labels, unigrams=(lexicon or None))
-            print("✅ [pyctcdecode] 새로운 API 성공: unigrams 파라미터 사용")
-        except TypeError as e:
-            print(f"⚠️ [pyctcdecode] 새로운 API 실패: {e}")
-            try:
-                # 이전 API: unigram_list 파라미터 사용 (하위 호환성)
-                print(f"🔧 [pyctcdecode] 이전 API 시도: unigram_list={lexicon is not None}")
-                decoder = build_ctcdecoder(labels=labels, unigram_list=(lexicon or None))
-                print("✅ [pyctcdecode] 이전 API 성공: unigram_list 파라미터 사용")
-            except TypeError as e2:
-                print(f"⚠️ [pyctcdecode] 이전 API 실패: {e2}")
-                # lexicon 없이 기본 디코더 생성
-                print("🔧 [pyctcdecode] 기본 디코더 생성: lexicon 없음")
+        # lexicon 사용 가능성 검사 및 디코더 생성
+        if lexicon and len(lexicon) > 0:
+            print(f"🔧 [pyctcdecode] lexicon 감지됨: {lexicon}")
+            
+            # lexicon의 모든 문자가 labels에 있는지 확인
+            lexicon_chars = set(''.join(lexicon))
+            label_chars = set(labels)
+            
+            print(f"🔧 [pyctcdecode] lexicon 문자들: {lexicon_chars}")
+            print(f"🔧 [pyctcdecode] vocabulary 문자들: {len(label_chars)}개")
+            
+            if lexicon_chars.issubset(label_chars):
+                print("✅ [pyctcdecode] lexicon의 모든 문자가 vocabulary에 있음, lexicon 사용 가능")
+                try:
+                    # 새로운 API: unigrams 파라미터 사용
+                    decoder = build_ctcdecoder(labels=labels, unigrams=lexicon)
+                    print("✅ [pyctcdecode] lexicon 포함 디코더 생성 성공")
+                except TypeError as e:
+                    print(f"⚠️ [pyctcdecode] 새로운 API 실패: {e}")
+                    try:
+                        # 이전 API: unigram_list 파라미터 사용
+                        decoder = build_ctcdecoder(labels=labels, unigram_list=lexicon)
+                        print("✅ [pyctcdecode] lexicon 포함 디코더 생성 성공 (이전 API)")
+                    except TypeError as e2:
+                        print(f"⚠️ [pyctcdecode] 이전 API도 실패: {e2}, 기본 디코더 사용")
+                        decoder = build_ctcdecoder(labels=labels)
+                        print("✅ [pyctcdecode] 기본 디코더 생성 완료")
+            else:
+                missing_chars = lexicon_chars - label_chars
+                print(f"⚠️ [pyctcdecode] lexicon에 새로운 문자가 있음: {missing_chars}, 기본 디코더 사용")
                 decoder = build_ctcdecoder(labels=labels)
-                print("✅ [pyctcdecode] 기본 디코더 성공: lexicon 없이 생성")
+                print("✅ [pyctcdecode] 기본 디코더 생성 완료")
+        else:
+            # lexicon이 없을 때
+            print("🔧 [pyctcdecode] lexicon 없음, 기본 디코더 생성")
+            try:
+                # 새로운 API: unigrams 파라미터 사용
+                decoder = build_ctcdecoder(labels=labels, unigrams=None)
+                print("✅ [pyctcdecode] 기본 디코더 생성 성공 (unigrams=None)")
+            except TypeError as e:
+                print(f"⚠️ [pyctcdecode] 새로운 API 실패: {e}")
+                try:
+                    # 이전 API: unigram_list 파라미터 사용 (하위 호환성)
+                    decoder = build_ctcdecoder(labels=labels, unigram_list=None)
+                    print("✅ [pyctcdecode] 기본 디코더 생성 성공 (unigram_list=None)")
+                except TypeError as e2:
+                    print(f"⚠️ [pyctcdecode] 이전 API도 실패: {e2}")
+                    # lexicon 없이 기본 디코더 생성
+                    decoder = build_ctcdecoder(labels=labels)
+                    print("✅ [pyctcdecode] 기본 디코더 생성 성공")
 
         # pyctcdecode expects shape (T, C)
         print(f"🔧 [pyctcdecode] 빔서치 디코딩 시작: beam_width={beam_width}, logits_shape={logits_np.shape}")
