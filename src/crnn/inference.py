@@ -51,53 +51,16 @@ class HandwritingPredictor:
         # lexicon 사용 가능성 검사 및 디코더 생성
         if lexicon and len(lexicon) > 0:
             print(f"🔧 [pyctcdecode] lexicon 감지됨: {lexicon}")
-            
-            # lexicon의 모든 문자가 labels에 있는지 확인
-            lexicon_chars = set(''.join(lexicon))
-            label_chars = set(labels)
-            
-            print(f"🔧 [pyctcdecode] lexicon 문자들: {lexicon_chars}")
-            print(f"🔧 [pyctcdecode] vocabulary 문자들: {len(label_chars)}개")
-            
-            if lexicon_chars.issubset(label_chars):
-                print("✅ [pyctcdecode] lexicon의 모든 문자가 vocabulary에 있음, lexicon 사용 가능")
-                try:
-                    # 새로운 API: unigrams 파라미터 사용
-                    decoder = build_ctcdecoder(labels=labels, unigrams=lexicon)
-                    print("✅ [pyctcdecode] lexicon 포함 디코더 생성 성공")
-                except TypeError as e:
-                    print(f"⚠️ [pyctcdecode] 새로운 API 실패: {e}")
-                    try:
-                        # 이전 API: unigram_list 파라미터 사용
-                        decoder = build_ctcdecoder(labels=labels, unigram_list=lexicon)
-                        print("✅ [pyctcdecode] lexicon 포함 디코더 생성 성공 (이전 API)")
-                    except TypeError as e2:
-                        print(f"⚠️ [pyctcdecode] 이전 API도 실패: {e2}, 기본 디코더 사용")
-                        decoder = build_ctcdecoder(labels=labels)
-                        print("✅ [pyctcdecode] 기본 디코더 생성 완료")
-            else:
-                missing_chars = lexicon_chars - label_chars
-                print(f"⚠️ [pyctcdecode] lexicon에 새로운 문자가 있음: {missing_chars}, 기본 디코더 사용")
-                decoder = build_ctcdecoder(labels=labels)
-                print("✅ [pyctcdecode] 기본 디코더 생성 완료")
+            print("🔧 [pyctcdecode] lexicon을 후처리로 활용하여 vocabulary 크기 유지")
+            # lexicon 사용 시 pyctcdecode가 vocabulary를 확장하여 크기 불일치 발생
+            # 기본 디코더 사용 후 lexicon을 활용한 후처리 수행
+            decoder = build_ctcdecoder(labels=labels)
+            print("✅ [pyctcdecode] 기본 디코더 생성 완료 (lexicon 후처리 모드)")
         else:
             # lexicon이 없을 때
             print("🔧 [pyctcdecode] lexicon 없음, 기본 디코더 생성")
-            try:
-                # 새로운 API: unigrams 파라미터 사용
-                decoder = build_ctcdecoder(labels=labels, unigrams=None)
-                print("✅ [pyctcdecode] 기본 디코더 생성 성공 (unigrams=None)")
-            except TypeError as e:
-                print(f"⚠️ [pyctcdecode] 새로운 API 실패: {e}")
-                try:
-                    # 이전 API: unigram_list 파라미터 사용 (하위 호환성)
-                    decoder = build_ctcdecoder(labels=labels, unigram_list=None)
-                    print("✅ [pyctcdecode] 기본 디코더 생성 성공 (unigram_list=None)")
-                except TypeError as e2:
-                    print(f"⚠️ [pyctcdecode] 이전 API도 실패: {e2}")
-                    # lexicon 없이 기본 디코더 생성
-                    decoder = build_ctcdecoder(labels=labels)
-                    print("✅ [pyctcdecode] 기본 디코더 생성 성공")
+            decoder = build_ctcdecoder(labels=labels)
+            print("✅ [pyctcdecode] 기본 디코더 생성 완료")
 
         # pyctcdecode expects shape (T, C)
         print(f"🔧 [pyctcdecode] 빔서치 디코딩 시작: beam_width={beam_width}, logits_shape={logits_np.shape}")
@@ -114,8 +77,67 @@ class HandwritingPredictor:
         avg_logprob = float(top1.logit_score) / max(1, len(text))
         margin = float(top1.logit_score - (top2.logit_score if top2 is not None else 0.0))
         
+        # lexicon 후처리: 기본 디코딩 결과를 lexicon과 매칭하여 개선
+        if lexicon and len(lexicon) > 0:
+            print(f"🔧 [lexicon-post] 후처리 시작: 원본='{text}', lexicon={lexicon}")
+            improved_text = self._apply_lexicon_postprocessing(text, lexicon)
+            if improved_text != text:
+                print(f"✅ [lexicon-post] 개선됨: '{text}' → '{improved_text}'")
+                text = improved_text
+            else:
+                print(f"ℹ️ [lexicon-post] 개선 없음: '{text}'")
+        
         print(f"✅ [pyctcdecode] 디코딩 완료: text='{text}', avg_logprob={avg_logprob:.4f}, margin={margin:.4f}")
         return text, {"avg_logprob": avg_logprob, "margin": margin}
+
+    def _apply_lexicon_postprocessing(self, text: str, lexicon: list) -> str:
+        """lexicon을 활용한 후처리: 기본 디코딩 결과를 lexicon과 매칭하여 개선"""
+        if not text or not lexicon:
+            return text
+            
+        # 1. 정확한 매칭 확인
+        if text in lexicon:
+            print(f"🎯 [lexicon-post] 정확한 매칭 발견: '{text}'")
+            return text
+            
+        # 2. 유사도 기반 매칭 (편집 거리)
+        best_match = None
+        min_distance = float('inf')
+        
+        for word in lexicon:
+            # 간단한 편집 거리 계산 (Levenshtein distance)
+            distance = self._levenshtein_distance(text, word)
+            if distance < min_distance:
+                min_distance = distance
+                best_match = word
+                
+        # 3. 임계값 기반 매칭 (편집 거리가 너무 크면 원본 유지)
+        if best_match and min_distance <= max(1, len(text) // 2):
+            print(f"🔧 [lexicon-post] 유사도 매칭: '{text}' → '{best_match}' (거리: {min_distance})")
+            return best_match
+        else:
+            print(f"ℹ️ [lexicon-post] 유사한 단어 없음: '{text}' (최소거리: {min_distance})")
+            return text
+    
+    def _levenshtein_distance(self, s1: str, s2: str) -> int:
+        """두 문자열 간의 편집 거리 계산"""
+        if len(s1) < len(s2):
+            return self._levenshtein_distance(s2, s1)
+        
+        if len(s2) == 0:
+            return len(s1)
+        
+        previous_row = list(range(len(s2) + 1))
+        for i, c1 in enumerate(s1):
+            current_row = [i + 1]
+            for j, c2 in enumerate(s2):
+                insertions = previous_row[j + 1] + 1
+                deletions = current_row[j] + 1
+                substitutions = previous_row[j] + (c1 != c2)
+                current_row.append(min(insertions, deletions, substitutions))
+            previous_row = current_row
+            
+        return previous_row[-1]
 
     def predict(self, image, lexicon: list | None = None):
         """이미지에서 텍스트 예측 (lexicon 제공 시 pyctcdecode 빔서치 사용)."""
