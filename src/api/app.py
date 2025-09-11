@@ -209,8 +209,8 @@ def _get_yolo_model():
             from ultralytics import YOLO  # type: ignore
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"ultralytics not installed: {e}")
-        # 항상 /root/models/best.pt 사용
-        weights = get_model_file_path("best.pt")
+        # 항상 /root/models/best_v2.pt 사용
+        weights = get_model_file_path("best_v2.pt")
         try:
             _yolo_model = YOLO(weights)
         except Exception as e:
