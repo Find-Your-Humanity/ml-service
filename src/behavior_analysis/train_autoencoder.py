@@ -11,7 +11,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
 
 class AutoEncoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim=32, latent_dim=16, dropout_rate=0.0):
+    def __init__(self, input_dim, hidden_dim=128, latent_dim=8, dropout_rate=0.1):
         super(AutoEncoder, self).__init__()
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -113,7 +113,7 @@ def grid_search_hyperparameters(csv_path):
     
     # 컬럼 순서 저장
     feature_columns = df.columns.tolist()
-    joblib.dump(feature_columns, "feature_columns_v2.pkl")
+    joblib.dump(feature_columns, "feature_columns_v3.pkl")
     
     # 7:3으로 train/validation 분할
     train_df, val_df = train_test_split(df, test_size=0.3, random_state=42, shuffle=True)
@@ -122,7 +122,7 @@ def grid_search_hyperparameters(csv_path):
     scaler = MinMaxScaler()
     train_scaled = scaler.fit_transform(train_df)
     val_scaled = scaler.transform(val_df)
-    joblib.dump(scaler, "scaler_v2.pkl")
+    joblib.dump(scaler, "scaler_v3.pkl")
     
     # 텐서 변환
     X_train = torch.tensor(train_scaled, dtype=torch.float32)
@@ -193,8 +193,8 @@ def grid_search_hyperparameters(csv_path):
     
     # 최적 모델 저장
     if best_model is not None:
-        torch.save(best_model.state_dict(), "model_v2.pth")
-        with open("threshold_v2.txt", "w") as f:
+        torch.save(best_model.state_dict(), "model_v3.pth")
+        with open("threshold_v3.txt", "w") as f:
             f.write(str(best_threshold))
         
         print(f"\n🎯 그리드 서치 완료!")
@@ -223,7 +223,7 @@ def train(csv_path):
 
     # 컬럼 순서 저장
     feature_columns = df.columns.tolist()
-    joblib.dump(feature_columns, "feature_columns_v2.pkl")
+    joblib.dump(feature_columns, "feature_columns_v3.pkl")
 
     # 7:3으로 train/validation 분할
     train_df, val_df = train_test_split(df, test_size=0.3, random_state=42, shuffle=True)
@@ -232,7 +232,7 @@ def train(csv_path):
     scaler = MinMaxScaler()
     train_scaled = scaler.fit_transform(train_df)
     val_scaled = scaler.transform(val_df)
-    joblib.dump(scaler, "scaler_v2.pkl")
+    joblib.dump(scaler, "scaler_v3.pkl")
 
     # 텐서 변환
     X_train = torch.tensor(train_scaled, dtype=torch.float32)
@@ -285,7 +285,7 @@ def train(csv_path):
         # Early stopping 및 최적 모델 저장
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), "model_v2.pth")
+            torch.save(model.state_dict(), "model_v3.pth")
             patience_counter = 0
             print(f"✅ 최적 모델 저장 (Val Loss: {avg_val_loss:.6f})")
         else:
@@ -296,14 +296,14 @@ def train(csv_path):
             break
 
     # 최적 모델 로드하여 threshold 계산 (validation set 기준)
-    model.load_state_dict(torch.load("model_v2.pth"))
+    model.load_state_dict(torch.load("model_v3.pth"))
     model.eval()
     with torch.no_grad():
         val_recon = model(X_val)
         val_mse = torch.mean((X_val - val_recon)**2, dim=1).numpy()
     
     threshold = np.mean(val_mse) + 3 * np.std(val_mse)
-    with open("threshold_v2.txt", "w") as f:
+    with open("threshold_v3.txt", "w") as f:
         f.write(str(threshold))
     
     print(f"🎯 최종 결과:")

@@ -8,7 +8,7 @@ from sklearn.preprocessing import MinMaxScaler
 from src.config.paths import get_model_file_path
 
 class AutoEncoder(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim=32, latent_dim=16, dropout_rate=0.0):
+    def __init__(self, input_dim, hidden_dim=128, latent_dim=8, dropout_rate=0.1):
         super(AutoEncoder, self).__init__()
         self.encoder = torch.nn.Sequential(
             torch.nn.Linear(input_dim, hidden_dim),
@@ -130,7 +130,7 @@ def detect_bot(json_path):
     try:
         model_path = get_model_file_path("model_v3.pth")
         print(f"🔍 [DEBUG] Loading model from: {model_path}")
-        model = AutoEncoder(input_dim=x.shape[1], hidden_dim=64, latent_dim=32, dropout_rate=0.0)
+        model = AutoEncoder(input_dim=x.shape[1], hidden_dim=128, latent_dim=8, dropout_rate=0.1)
         model.load_state_dict(torch.load(model_path))
         model.eval()
         print(f"🔍 [DEBUG] Model loaded successfully")

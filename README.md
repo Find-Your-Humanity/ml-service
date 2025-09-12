@@ -32,10 +32,10 @@ src/
 │   ├── generate_data.py           # 합성 데이터 생성
 │   ├── merge_basic.py             # 데이터 병합 및 전처리
 │   └── models/                    # 훈련된 모델 저장소
-│       ├── model_v2.pth            # AutoEncoder 모델 가중치
-│       ├── scaler_v2.pkl           # 특성 정규화 스케일러
-│       ├── feature_columns_v2.pkl  # 특성 컬럼 정보
-│       └── threshold_v2.txt        # 봇 탐지 임계값
+│       ├── model_v3.pth            # AutoEncoder 모델 가중치
+│       ├── scaler_v3.pkl           # 특성 정규화 스케일러
+│       ├── feature_columns_v3.pkl  # 특성 컬럼 정보
+│       └── threshold_v3.txt        # 봇 탐지 임계값
 ├── data/                          # 데이터 저장소
 │   └── behavior_data/             # 행동 데이터 파일들
 │       ├── behavior_data_*.json   # 수집된 행동 데이터
@@ -175,8 +175,8 @@ def calculate_trust_score(reconstruction_error, threshold):
 from config.paths import get_model_file_path, get_data_file_path
 
 # 모델 파일 로드
-model_path = get_model_file_path("model_v2.pth")
-threshold_path = get_model_file_path("threshold_v2.txt")
+model_path = get_model_file_path("model_v3.pth")
+threshold_path = get_model_file_path("threshold_v3.txt")
 
 # 데이터 파일 로드
 data_path = get_data_file_path("behavior_data_001.json")
