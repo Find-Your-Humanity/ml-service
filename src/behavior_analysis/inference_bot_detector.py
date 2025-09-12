@@ -99,7 +99,7 @@ def detect_bot(json_path):
 
     # ✅ feature_columns 불러오기
     try:
-        feature_columns_path = get_model_file_path("feature_columns_v2.pkl")
+        feature_columns_path = get_model_file_path("feature_columns_v3.pkl")
         print(f"🔍 [DEBUG] Loading feature_columns from: {feature_columns_path}")
         feature_columns = joblib.load(feature_columns_path)
         print(f"🔍 [DEBUG] Feature columns loaded: {len(feature_columns)} columns")
@@ -114,7 +114,7 @@ def detect_bot(json_path):
     df = df[feature_columns]
 
     try:
-        scaler_path = get_model_file_path("scaler_v2.pkl")
+        scaler_path = get_model_file_path("scaler_v3.pkl")
         print(f"🔍 [DEBUG] Loading scaler from: {scaler_path}")
         scaler = joblib.load(scaler_path)
         print(f"🔍 [DEBUG] Scaler loaded successfully")
@@ -128,7 +128,7 @@ def detect_bot(json_path):
 
     # 그리드 서치 결과의 최적 파라미터 사용
     try:
-        model_path = get_model_file_path("model_v2.pth")
+        model_path = get_model_file_path("model_v3.pth")
         print(f"🔍 [DEBUG] Loading model from: {model_path}")
         model = AutoEncoder(input_dim=x.shape[1], hidden_dim=64, latent_dim=32, dropout_rate=0.0)
         model.load_state_dict(torch.load(model_path))
@@ -139,7 +139,7 @@ def detect_bot(json_path):
         raise
 
     try:
-        threshold_path = get_model_file_path("threshold_v2.txt")
+        threshold_path = get_model_file_path("threshold_v3.txt")
         print(f"🔍 [DEBUG] Loading threshold from: {threshold_path}")
         with open(threshold_path, "r") as f:
             threshold = float(f.read())
