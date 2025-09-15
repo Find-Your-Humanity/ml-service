@@ -113,26 +113,33 @@ def encode_text(text, char_to_idx):
     """텍스트를 인덱스 시퀀스로 변환합니다."""
     return [char_to_idx[char] for char in text]
 
-def decode_prediction(pred, idx_to_char):
-    """CTC 디코딩을 수행합니다."""
+def decode_prediction_old(pred, idx_to_char):
+    """기존 CTC 디코딩 (주석처리)"""
     # pred: [seq_length, batch_size, num_classes]
     # 학습 중에도 사용되므로 detach() 후 CPU/NumPy로 변환
-    pred = pred.detach().permute(1, 0, 2).cpu().numpy()  # [batch_size, seq_length, num_classes]
-    
-    outputs = []
-    for p in pred:
-        p = p.argmax(axis=1)  # 각 타임스텝에서 가장 높은 확률의 문자 선택
-        
-        # Merge repeated characters and remove blank label
-        previous = -1
-        out = []
-        for c in p:
-            if c != previous and c != 0:  # 0은 blank label
-                out.append(idx_to_char[c])
-            previous = c
-        outputs.append(''.join(out))
-    
-    return outputs
+    # pred = pred.detach().permute(1, 0, 2).cpu().numpy()  # [batch_size, seq_length, num_classes]
+    # 
+    # outputs = []
+    # for p in pred:
+    #     p = p.argmax(axis=1)  # 각 타임스텝에서 가장 높은 확률의 문자 선택
+    #     
+    #     # Merge repeated characters and remove blank label
+    #     previous = -1
+    #     out = []
+    #     for c in p:
+    #         if c != previous and c != 0:  # 0은 blank label
+    #             out.append(idx_to_char[c])
+    #         previous = c
+    #     outputs.append(''.join(out))
+    # 
+    # return outputs
+    pass
+
+
+def decode_prediction(pred, idx_to_char, word_list_path=None, beam_size=10):
+    """새로운 Constrained Beam Search 디코딩"""
+    from .constrained_decoder import decode_prediction as constrained_decode
+    return constrained_decode(pred, idx_to_char, word_list_path, beam_size)
 
 class HandwritingDataset(Dataset):
     """손글씨 데이터셋 클래스"""

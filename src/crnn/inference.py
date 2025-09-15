@@ -39,8 +39,8 @@ class HandwritingPredictor:
 
 
 
-    def predict(self, image, lexicon: list | None = None):
-        """이미지에서 텍스트 예측 (Greedy 디코딩 사용)."""
+    def predict(self, image, lexicon: list | None = None, word_list_path: str = None, beam_size: int = 10):
+        """이미지에서 텍스트 예측 (Constrained Beam Search 디코딩 사용)."""
         # 이미지 전처리 (백엔드에서 하던 전처리를 이곳으로 이동)
         if isinstance(image, str):
             img = Image.open(image)
@@ -77,10 +77,15 @@ class HandwritingPredictor:
         
         # 예측
         outputs = self._forward_logits(img_tensor)  # [T, B, C]
+        print(f"🤖 [HandwritingPredictor] 모델 출력 형태: {outputs.shape}")
 
-        # Greedy 디코딩만 사용
-        predictions = decode_prediction(outputs, self.idx_to_char)
-        return predictions[0]
+        # Constrained Beam Search 디코딩 사용
+        print(f"🔍 [HandwritingPredictor] Constrained Beam Search 디코딩 시작 (beam_size: {beam_size})")
+        predictions = decode_prediction(outputs, self.idx_to_char, word_list_path, beam_size)
+        
+        result = predictions[0]
+        print(f"🎯 [HandwritingPredictor] 최종 예측 결과: '{result}'")
+        return result
 
 def main(args):
     # 문자 집합 로드 (charset_path 우선)
