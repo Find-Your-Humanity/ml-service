@@ -151,24 +151,43 @@ def detect_bot(json_path):
     df = pd.DataFrame([feat])
     print(f"🔍 [DEBUG] DataFrame created: {df.shape}")
 
-    # ✅ (분류 모델용) 피처 일치화: scaler.feature_names_in_ 기준으로 정확히 맞추기
-
+    # ✅ (분류 모델용) 피처 일치화: feature_order.json 우선 적용, 없으면 scaler.feature_names_in_
     try:
         scaler_path = get_model_file_path("scaler.joblib")
         print(f"🔍 [DEBUG] Loading scaler from: {scaler_path}")
         scaler = joblib.load(scaler_path)
         print("🔍 [DEBUG] Scaler loaded successfully")
-        feature_order = None
-        if hasattr(scaler, "feature_names_in_"):
-            feature_order = list(scaler.feature_names_in_)
-            # 누락된 컬럼은 0으로 채우고, 초과된 컬럼은 제거
-            for col in feature_order:
-                if col not in df.columns:
-                    df[col] = 0
-            df_aligned = df[feature_order]
-        else:
-            # 백업: 알파벳 정렬
-            df_aligned = df.reindex(sorted(df.columns), axis=1)
+
+        # 1) feature_order.json 존재 시 그 순서 강제 적용
+        feature_order_path = get_model_file_path("feature_order.json")
+        order = None
+        try:
+            with open(feature_order_path, "r") as f:
+                order = json.load(f)
+            print(f"🔍 [DEBUG] Loaded FEATURE_ORDER from JSON: {order}")
+        except Exception:
+            order = None
+
+        # 2) 없으면 scaler.feature_names_in_ 사용
+        if order is None and hasattr(scaler, "feature_names_in_"):
+            order = list(scaler.feature_names_in_)
+            print(f"🔍 [DEBUG] Using FEATURE_ORDER from scaler.feature_names_in_: {order}")
+
+        if order is None:
+            raise RuntimeError("FEATURE_ORDER not found. Provide feature_order.json or scaler with feature_names_in_.")
+
+        # 누락 컬럼 0 채우기, 초과 컬럼 드롭 후 순서 강제
+        for col in order:
+            if col not in df.columns:
+                df[col] = 0.0
+        df_aligned = df[[c for c in order if c in df.columns]]
+        # 혹시 초과 컬럼 존재 시 무시(모델 입력 외 컬럼 제거)
+        if df_aligned.shape[1] != len(order):
+            missing = [c for c in order if c not in df_aligned.columns]
+            extra = [c for c in df.columns if c not in order]
+            print(f"⚠️ [DEBUG] Column alignment: missing={missing}, extra={extra}")
+            # 누락은 이미 0 채웠고, extra는 자동 드롭됨
+
         scaled = scaler.transform(df_aligned)
     except Exception as e:
         print(f"❌ [DEBUG] Scaler load/transform failed, fallback to raw features: {e}")

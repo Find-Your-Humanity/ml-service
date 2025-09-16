@@ -116,3 +116,5 @@ if __name__ == "__main__":
         is_valid = is_valid_answer(target, user_answer)
         status = "✅" if is_valid else "❌"
         print(f"{status} Target: {target:12} | User: {user_answer:8} | Valid: {is_valid}")
+
+
