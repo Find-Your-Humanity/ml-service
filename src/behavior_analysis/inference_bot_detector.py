@@ -2,31 +2,53 @@
 import torch
 import pandas as pd
 import numpy as np
-import joblib
 import json
-from sklearn.preprocessing import MinMaxScaler
+import joblib
 from src.config.paths import get_model_file_path
 
-class AutoEncoder(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim=128, latent_dim=8, dropout_rate=0.1):
-        super(AutoEncoder, self).__init__()
-        self.encoder = torch.nn.Sequential(
-            torch.nn.Linear(input_dim, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(dropout_rate),
-            torch.nn.Linear(hidden_dim, latent_dim)
-        )
-        self.decoder = torch.nn.Sequential(
-            torch.nn.Linear(latent_dim, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(dropout_rate),
-            torch.nn.Linear(hidden_dim, input_dim)
-        )
+# ==============================================
+# 기존 AutoEncoder 기반 로직 (주석 처리 - 보존)
+# from sklearn.preprocessing import MinMaxScaler
+# class AutoEncoder(torch.nn.Module):
+#     def __init__(self, input_dim, hidden_dim=128, latent_dim=8, dropout_rate=0.1):
+#         super(AutoEncoder, self).__init__()
+#         self.encoder = torch.nn.Sequential(
+#             torch.nn.Linear(input_dim, hidden_dim),
+#             torch.nn.ReLU(),
+#             torch.nn.Dropout(dropout_rate),
+#             torch.nn.Linear(hidden_dim, latent_dim)
+#         )
+#         self.decoder = torch.nn.Sequential(
+#             torch.nn.Linear(latent_dim, hidden_dim),
+#             torch.nn.ReLU(),
+#             torch.nn.Dropout(dropout_rate),
+#             torch.nn.Linear(hidden_dim, input_dim)
+#         )
+#     def forward(self, x):
+#         encoded = self.encoder(x)
+#         decoded = self.decoder(encoded)
+#         return decoded
+# ==============================================
+
+# ----------------------------------------------
+# 사람/봇 이진분류 MLP (best_model.pt) 로더
+# 학습 스크립트의 구조와 동일하게 정의
+class MLP(torch.nn.Module):
+    def __init__(self, input_features: int):
+        super().__init__()
+        self.layer1 = torch.nn.Linear(input_features, 64)
+        self.layer2 = torch.nn.Linear(64, 32)
+        self.output_layer = torch.nn.Linear(32, 1)
+        self.relu = torch.nn.ReLU()
+        self.dropout = torch.nn.Dropout(p=0.5)
 
     def forward(self, x):
-        encoded = self.encoder(x)
-        decoded = self.decoder(encoded)
-        return decoded
+        x = self.relu(self.layer1(x))
+        x = self.dropout(x)
+        x = self.relu(self.layer2(x))
+        x = self.dropout(x)
+        return self.output_layer(x)
+# ----------------------------------------------
 
 def extract_features_from_json(path):
     with open(path, "r") as f:
@@ -97,86 +119,45 @@ def detect_bot(json_path):
     df = pd.DataFrame([feat])
     print(f"🔍 [DEBUG] DataFrame created: {df.shape}")
 
-    # ✅ feature_columns 불러오기
-    try:
-        feature_columns_path = get_model_file_path("feature_columns_v3.pkl")
-        print(f"🔍 [DEBUG] Loading feature_columns from: {feature_columns_path}")
-        feature_columns = joblib.load(feature_columns_path)
-        print(f"🔍 [DEBUG] Feature columns loaded: {len(feature_columns)} columns")
-    except Exception as e:
-        print(f"❌ [DEBUG] Error loading feature_columns: {e}")
-        raise
+    # ✅ (분류 모델용) 피처 정렬/일치화
+    # 주의: 학습 시 사용한 컬럼 목록이 별도 파일로 제공되지 않은 경우
+    #       스케일러가 기대하는 피처 수(n_features_in_)에 맞추어 DataFrame 컬럼을 정렬만 수행합니다.
+    #       운영에서는 학습 시 feature_columns 를 별도 파일로 저장/로딩하는 것을 권장합니다.
 
-    # ✅ 누락된 컬럼은 0으로 채우고, 순서 맞추기
-    for col in feature_columns:
-        if col not in df.columns:
-            df[col] = 0
-    df = df[feature_columns]
-
+    # 스케일러 적용: 컬럼을 알파벳 순으로 정렬 후 scaler.transform 적용
+    df_sorted = df.reindex(sorted(df.columns), axis=1)
     try:
-        scaler_path = get_model_file_path("scaler_v3.pkl")
+        scaler_path = get_model_file_path("scaler.joblib")
         print(f"🔍 [DEBUG] Loading scaler from: {scaler_path}")
         scaler = joblib.load(scaler_path)
-        print(f"🔍 [DEBUG] Scaler loaded successfully")
+        print("🔍 [DEBUG] Scaler loaded successfully")
+        scaled = scaler.transform(df_sorted)
     except Exception as e:
-        print(f"❌ [DEBUG] Error loading scaler: {e}")
-        raise
-    
-    scaled = scaler.transform(df)
+        print(f"❌ [DEBUG] Scaler load/transform failed, fallback to raw features: {e}")
+        scaled = df_sorted.values
     x = torch.tensor(scaled, dtype=torch.float32)
     print(f"🔍 [DEBUG] Scaled data shape: {x.shape}")
 
-    # 그리드 서치 결과의 최적 파라미터 사용
+    # 분류 모델 로딩 (best_model.pt)
     try:
-        model_path = get_model_file_path("model_v3.pth")
-        print(f"🔍 [DEBUG] Loading model from: {model_path}")
-        model = AutoEncoder(input_dim=x.shape[1], hidden_dim=128, latent_dim=8, dropout_rate=0.1)
-        model.load_state_dict(torch.load(model_path))
+        model_path = get_model_file_path("best_model.pt")
+        print(f"🔍 [DEBUG] Loading classifier model from: {model_path}")
+        model = MLP(input_features=x.shape[1])
+        model.load_state_dict(torch.load(model_path, map_location="cpu"))
         model.eval()
-        print(f"🔍 [DEBUG] Model loaded successfully")
+        print(f"🔍 [DEBUG] Classifier model loaded successfully")
     except Exception as e:
-        print(f"❌ [DEBUG] Error loading model: {e}")
+        print(f"❌ [DEBUG] Error loading classifier model: {e}")
         raise
 
-    try:
-        threshold_path = get_model_file_path("threshold_v3.txt")
-        print(f"🔍 [DEBUG] Loading threshold from: {threshold_path}")
-        with open(threshold_path, "r") as f:
-            threshold = float(f.read())
-        print(f"🔍 [DEBUG] Threshold loaded: {threshold}")
-    except Exception as e:
-        print(f"❌ [DEBUG] Error loading threshold: {e}")
-        raise
-
-    print("🔍 [DEBUG] Starting model inference...")
+    # 분류 확률 예측 (시그모이드 → 확률)
     with torch.no_grad():
-        print("🔍 [DEBUG] Running model forward pass...")
-        recon = model(x)
-        print("🔍 [DEBUG] Model forward pass completed")
-        mse = torch.mean((x - recon)**2, dim=1).item()
-        print(f"🔍 [DEBUG] MSE calculated: {mse}")
-
-    print("🔍 [DEBUG] Starting score calculation...")
-    # 개선된 점수 계산 방식
-    # MSE가 매우 클 경우를 대비한 로그 스케일링 적용
-    if mse > threshold:
-        # MSE가 threshold보다 클 때는 로그 비율로 점수 계산
-        ratio = mse / threshold
-        print(f"🔍 [DEBUG] MSE > threshold, ratio: {ratio}")
-        if ratio > 1000:  # 매우 큰 차이일 때
-            score = max(0, 100 * (1 - np.log10(ratio) / 10))  # 로그 스케일링
-            print(f"🔍 [DEBUG] Using log scaling, score: {score}")
-        else:
-            score = max(0, 100 * (1 - ratio / 100))  # 선형 스케일링 (완화됨)
-            print(f"🔍 [DEBUG] Using linear scaling, score: {score}")
-    else:
-        # 원래 공식 사용
-        score = max(0, 100 * (1 - (mse / threshold)))
-        print(f"🔍 [DEBUG] Using original formula, score: {score}")
-    
-    # 간단한 고정 임계값 사용
-    is_bot = score < 50
-    print(f"🔍 [DEBUG] Bot detection result: is_bot={is_bot}")
+        logits = model(x)
+        prob = torch.sigmoid(logits).item()  # 0~1
+    score = round(float(prob * 100.0), 2)    # 0~100
+    # 임계값: 0.5 (필요시 환경변수/설정으로 외부화 가능)
+    is_bot = bool(prob >= 0.5)
+    print(f"🔍 [DEBUG] Classifier prob={prob:.4f}, score={score}, is_bot={is_bot}")
 
     # NumPy 타입 -> Python 기본 타입으로 변환 (무한대/NaN 값 처리)
     def safe_convert(value):
@@ -195,10 +176,8 @@ def detect_bot(json_path):
         return round(float(value), 6)
 
     return {
-        "score": round(float(score), 2),
-        "mse": safe_float(mse),
-        "threshold": safe_float(threshold),
-        "is_bot": bool(is_bot),
+        "score": score,
+        "is_bot": is_bot,
         "features": feat_serialized
     }
 
