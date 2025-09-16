@@ -6,6 +6,21 @@ import json
 import joblib
 from src.config.paths import get_model_file_path
 
+# 학습 시 사용한 피처 순서 (11개)
+FEATURE_ORDER = [
+    "duration",
+    "movement_count",
+    "click_count",
+    "total_distance",
+    "avg_velocity",
+    "std_velocity",
+    "max_velocity",
+    "avg_acceleration",
+    "straightness",
+    "avg_angle_change",
+    "std_angle_change"
+]
+
 # ==============================================
 # 기존 AutoEncoder 기반 로직 (주석 처리 - 보존)
 # from sklearn.preprocessing import MinMaxScaler
@@ -158,23 +173,17 @@ def detect_bot(json_path):
         scaler = joblib.load(scaler_path)
         print("🔍 [DEBUG] Scaler loaded successfully")
 
-        # 1) feature_order.json 존재 시 그 순서 강제 적용
-        feature_order_path = get_model_file_path("feature_order.json")
-        order = None
-        try:
-            with open(feature_order_path, "r") as f:
-                order = json.load(f)
-            print(f"🔍 [DEBUG] Loaded FEATURE_ORDER from JSON: {order}")
-        except Exception:
-            order = None
-
-        # 2) 없으면 scaler.feature_names_in_ 사용
-        if order is None and hasattr(scaler, "feature_names_in_"):
-            order = list(scaler.feature_names_in_)
-            print(f"🔍 [DEBUG] Using FEATURE_ORDER from scaler.feature_names_in_: {order}")
-
-        if order is None:
-            raise RuntimeError("FEATURE_ORDER not found. Provide feature_order.json or scaler with feature_names_in_.")
+        # 1) 하드코딩된 FEATURE_ORDER 우선 사용
+        order = FEATURE_ORDER
+        print(f"🔍 [DEBUG] Using hardcoded FEATURE_ORDER: {order}")
+        
+        # 2) 백업: scaler.feature_names_in_ 사용 (하드코딩이 실패할 경우)
+        if hasattr(scaler, "feature_names_in_"):
+            scaler_order = list(scaler.feature_names_in_)
+            if scaler_order != order:
+                print(f"⚠️ [DEBUG] Scaler order differs from hardcoded: {scaler_order}")
+                # 필요시 scaler 순서로 오버라이드 가능
+                # order = scaler_order
 
         # 누락 컬럼 0 채우기, 초과 컬럼 드롭 후 순서 강제
         for col in order:
