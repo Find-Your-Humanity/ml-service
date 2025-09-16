@@ -51,51 +51,83 @@ class MLP(torch.nn.Module):
 # ----------------------------------------------
 
 def extract_features_from_json(path):
+    """
+    사용자가 제공한 학습/추론 스펙에 맞춘 11개 피처를 계산합니다.
+    - duration, movement_count, click_count,
+      total_distance, avg_velocity, std_velocity, max_velocity, avg_acceleration,
+      straightness, avg_angle_change, std_angle_change
+    """
     with open(path, "r") as f:
-        data = json.load(f)[0]
+        data = json.load(f)
+    # 사용자 스크립트는 단일 세션 dict를 기대하지만
+    # 이 프로젝트의 detect_bot는 [dict] 리스트를 넘기므로 양쪽 모두 허용
+    if isinstance(data, list) and len(data) > 0:
+        data = data[0]
 
-    mouse = pd.DataFrame(data.get("mouseMovements", []))
-    clicks = pd.DataFrame(data.get("mouseClicks", []))
+    movements = data.get("mouseMovements", []) or []
+    clicks = data.get("mouseClicks", []) or []
+    page_events = data.get("pageEvents", {}) or {}
 
-    if len(mouse) == 0:
+    if len(movements) < 2:
         return None
 
-    mouse["dt"] = mouse["timestamp"].diff().fillna(0)
+    import math
+    features = {}
+    # duration: 마지막 움직임 시각 - 페이지 입장 혹은 첫 움직임 시각
+    features["duration"] = movements[-1].get("timestamp", 0) - (page_events.get("enterTime") or movements[0].get("timestamp", 0))
+    features["movement_count"] = len(movements)
+    features["click_count"] = len([c for c in clicks if c.get("type") == "click"])
 
-    dx = mouse["x"].diff().fillna(0)
-    dy = mouse["y"].diff().fillna(0)
-    distance = np.sqrt(dx**2 + dy**2)
-    speed = distance / mouse["dt"].replace(0, np.nan)
+    distances, velocities, accelerations, time_deltas = [], [], [], []
+    for i in range(len(movements) - 1):
+        p1, p2 = movements[i], movements[i + 1]
+        dx = (p2.get("x", 0) - p1.get("x", 0))
+        dy = (p2.get("y", 0) - p1.get("y", 0))
+        dist = math.sqrt(dx * dx + dy * dy)
+        dt = (p2.get("timestamp", 0) - p1.get("timestamp", 0)) / 1000.0
+        if dt > 0:
+            distances.append(dist)
+            time_deltas.append(dt)
+            velocities.append(dist / dt)
 
-    click_counts = {
-        "click_count": len(clicks),
-        "mousedown_count": 0,
-        "mouseup_count": 0,
-    }
-    if not clicks.empty and "type" in clicks.columns:
-        click_counts["mousedown_count"] = (clicks["type"] == "mousedown").sum()
-        click_counts["mouseup_count"] = (clicks["type"] == "mouseup").sum()
-        for t in clicks["type"].unique():
-            click_counts[f"click_type_{t}"] = (clicks["type"] == t).sum()
+    if not velocities:
+        return None
 
-    summary = {
-        "total_distance": distance.sum(),
-        "average_speed": speed.mean(),
-        "max_speed": speed.max(),
-        "min_speed": speed.min(),
-        "std_speed": speed.std(),
-        "total_duration": mouse["timestamp"].iloc[-1] - mouse["timestamp"].iloc[0],
-        "movement_count": len(mouse),
-        "pause_count": (speed < 5).sum()
-    }
-    summary.update(click_counts)
+    for i in range(len(velocities) - 1):
+        v1, v2 = velocities[i], velocities[i + 1]
+        dt = time_deltas[i + 1] if i + 1 < len(time_deltas) else None
+        if dt and dt > 0:
+            accelerations.append((v2 - v1) / dt)
 
-    # 누락된 클릭 타입 기본 0으로 추가
-    for col in ["click_type_click", "click_type_mousedown", "click_type_mouseup"]:
-        if col not in summary:
-            summary[col] = 0
+    features["total_distance"] = float(sum(distances))
+    features["avg_velocity"] = float(np.mean(velocities)) if velocities else 0.0
+    features["std_velocity"] = float(np.std(velocities)) if velocities else 0.0
+    features["max_velocity"] = float(np.max(velocities)) if velocities else 0.0
+    features["avg_acceleration"] = float(np.mean(accelerations)) if accelerations else 0.0
 
-    return summary
+    start_point, end_point = movements[0], movements[-1]
+    dx_se = (end_point.get("x", 0) - start_point.get("x", 0))
+    dy_se = (end_point.get("y", 0) - start_point.get("y", 0))
+    straight_line_dist = math.sqrt(dx_se * dx_se + dy_se * dy_se)
+    total_distance = features["total_distance"]
+    features["straightness"] = float(straight_line_dist / total_distance) if total_distance > 0 else 1.0
+
+    angles = []
+    for i in range(len(movements) - 2):
+        p1, p2, p3 = movements[i], movements[i + 1], movements[i + 2]
+        v1 = (p2.get("x", 0) - p1.get("x", 0), p2.get("y", 0) - p1.get("y", 0))
+        v2 = (p3.get("x", 0) - p2.get("x", 0), p3.get("y", 0) - p2.get("y", 0))
+        mag_v1 = math.sqrt(v1[0] * v1[0] + v1[1] * v1[1])
+        mag_v2 = math.sqrt(v2[0] * v2[0] + v2[1] * v2[1])
+        if mag_v1 * mag_v2 > 0:
+            cos_val = (v1[0] * v2[0] + v1[1] * v2[1]) / (mag_v1 * mag_v2)
+            cos_val = float(np.clip(cos_val, -1.0, 1.0))
+            angle = math.degrees(math.acos(cos_val))
+            angles.append(angle)
+    features["avg_angle_change"] = float(np.mean(angles)) if angles else 0.0
+    features["std_angle_change"] = float(np.std(angles)) if angles else 0.0
+
+    return features
 
 def detect_bot(json_path):
     print(f"🔍 [DEBUG] detect_bot called with: {json_path}")
@@ -119,22 +151,28 @@ def detect_bot(json_path):
     df = pd.DataFrame([feat])
     print(f"🔍 [DEBUG] DataFrame created: {df.shape}")
 
-    # ✅ (분류 모델용) 피처 정렬/일치화
-    # 주의: 학습 시 사용한 컬럼 목록이 별도 파일로 제공되지 않은 경우
-    #       스케일러가 기대하는 피처 수(n_features_in_)에 맞추어 DataFrame 컬럼을 정렬만 수행합니다.
-    #       운영에서는 학습 시 feature_columns 를 별도 파일로 저장/로딩하는 것을 권장합니다.
+    # ✅ (분류 모델용) 피처 일치화: scaler.feature_names_in_ 기준으로 정확히 맞추기
 
-    # 스케일러 적용: 컬럼을 알파벳 순으로 정렬 후 scaler.transform 적용
-    df_sorted = df.reindex(sorted(df.columns), axis=1)
     try:
         scaler_path = get_model_file_path("scaler.joblib")
         print(f"🔍 [DEBUG] Loading scaler from: {scaler_path}")
         scaler = joblib.load(scaler_path)
         print("🔍 [DEBUG] Scaler loaded successfully")
-        scaled = scaler.transform(df_sorted)
+        feature_order = None
+        if hasattr(scaler, "feature_names_in_"):
+            feature_order = list(scaler.feature_names_in_)
+            # 누락된 컬럼은 0으로 채우고, 초과된 컬럼은 제거
+            for col in feature_order:
+                if col not in df.columns:
+                    df[col] = 0
+            df_aligned = df[feature_order]
+        else:
+            # 백업: 알파벳 정렬
+            df_aligned = df.reindex(sorted(df.columns), axis=1)
+        scaled = scaler.transform(df_aligned)
     except Exception as e:
         print(f"❌ [DEBUG] Scaler load/transform failed, fallback to raw features: {e}")
-        scaled = df_sorted.values
+        scaled = df.values
     x = torch.tensor(scaled, dtype=torch.float32)
     print(f"🔍 [DEBUG] Scaled data shape: {x.shape}")
 
@@ -142,7 +180,8 @@ def detect_bot(json_path):
     try:
         model_path = get_model_file_path("best_model.pt")
         print(f"🔍 [DEBUG] Loading classifier model from: {model_path}")
-        model = MLP(input_features=x.shape[1])
+        input_dim = scaled.shape[1]
+        model = MLP(input_features=input_dim)
         model.load_state_dict(torch.load(model_path, map_location="cpu"))
         model.eval()
         print(f"🔍 [DEBUG] Classifier model loaded successfully")
