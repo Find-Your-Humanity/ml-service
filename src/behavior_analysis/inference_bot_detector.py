@@ -1,4 +1,5 @@
 # inference_bot_detector.py
+import os
 import torch
 import pandas as pd
 import numpy as np
@@ -144,8 +145,8 @@ def extract_features_from_json(path):
 
     return features
 
-def detect_bot(json_path):
-    print(f"🔍 [DEBUG] detect_bot called with: {json_path}")
+def detect_bot(json_path, temperature=5.0):
+    print(f"🔍 [DEBUG] detect_bot called with: {json_path}, temperature: {temperature}")
     
     feat = extract_features_from_json(json_path)
     print(f"🔍 [DEBUG] Extracted features: {feat}")
@@ -168,7 +169,15 @@ def detect_bot(json_path):
 
     # ✅ (분류 모델용) 피처 일치화: feature_order.json 우선 적용, 없으면 scaler.feature_names_in_
     try:
-        scaler_path = get_model_file_path("scaler.joblib")
+        # 임시: visualize 스크립트용 로컬 경로
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        local_models_dir = os.path.join(os.getcwd(), "models")
+        scaler_path = os.path.join(local_models_dir, "scaler.joblib")
+        
+        # 로컬 경로가 없으면 원래 경로 사용
+        if not os.path.exists(scaler_path):
+            scaler_path = get_model_file_path("scaler.joblib")
+        
         print(f"🔍 [DEBUG] Loading scaler from: {scaler_path}")
         scaler = joblib.load(scaler_path)
         print("🔍 [DEBUG] Scaler loaded successfully")
@@ -206,7 +215,15 @@ def detect_bot(json_path):
 
     # 분류 모델 로딩 (best_model.pt)
     try:
-        model_path = get_model_file_path("best_model.pt")
+        # 임시: visualize 스크립트용 로컬 경로
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        local_models_dir = os.path.join(os.getcwd(), "models")
+        model_path = os.path.join(local_models_dir, "best_model.pt")
+        
+        # 로컬 경로가 없으면 원래 경로 사용
+        if not os.path.exists(model_path):
+            model_path = get_model_file_path("best_model.pt")
+        
         print(f"🔍 [DEBUG] Loading classifier model from: {model_path}")
         input_dim = scaled.shape[1]
         model = MLP(input_features=input_dim)
@@ -217,14 +234,16 @@ def detect_bot(json_path):
         print(f"❌ [DEBUG] Error loading classifier model: {e}")
         raise
 
-    # 분류 확률 예측 (시그모이드 → 확률)
+    # 분류 확률 예측 (온도 스케일링 적용 → 시그모이드 → 확률)
     with torch.no_grad():
         logits = model(x)
-        prob = torch.sigmoid(logits).item()  # 0~1
+        # 온도 스케일링: logits를 온도로 나누어 불확실성 증가
+        calibrated_logits = logits / temperature
+        prob = torch.sigmoid(calibrated_logits).item()  # 0~1
     score = round(float(prob * 100.0), 2)    # 0~100
     # 임계값: 0.5 (필요시 환경변수/설정으로 외부화 가능)
     is_bot = bool(prob >= 0.5)
-    print(f"🔍 [DEBUG] Classifier prob={prob:.4f}, score={score}, is_bot={is_bot}")
+    print(f"🔍 [DEBUG] Classifier logits={logits.item():.4f}, calibrated_logits={calibrated_logits.item():.4f}, prob={prob:.4f}, score={score}, is_bot={is_bot}")
 
     # NumPy 타입 -> Python 기본 타입으로 변환 (무한대/NaN 값 처리)
     def safe_convert(value):
